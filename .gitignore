@@ -1,0 +1,22 @@
+# ===== 环境/依赖（各自电脑独立，不共享） =====
+后端/.venv/
+后端/aiplatform.db
+后端/backend.log
+后端/backend.err.log
+后端/__pycache__/
+门户/node_modules/
+门户/dist/
+门户/vite-dev.log
+
+# ===== 敏感信息（绝不上传） =====
+*.env
+.env.local
+config.local.*
+**/config.local.json
+
+# ===== 系统/编辑器 =====
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/
