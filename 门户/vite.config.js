@@ -9,11 +9,11 @@ export default defineConfig({
     port: 5173,
     proxy: {
       '/admin': {
-        target: 'http://localhost:8080',
+        target: 'http://localhost:8081',
         changeOrigin: true,
       },
       '/chat': {
-        target: 'http://localhost:8080',
+        target: 'http://localhost:8081',
         changeOrigin: true,
       },
       '/api': {

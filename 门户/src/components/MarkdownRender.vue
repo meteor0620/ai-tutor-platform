@@ -20,6 +20,82 @@ const md = new MarkdownIt({
 
 md.use(texmath, { engine: katex, delimiters: 'dollars', katexOptions: { throwOnError: false } })
 
+// ===== 裸文本数学包裹器 =====
+// 把 AI 回复里"没被 $ 包裹"的数学记号自动包成 $...$ 交给 KaTeX 渲染，
+// 例如：e^x → $e^x$、x_0 → $x_0$、\frac{1}{2} → $\frac{1}{2}$、x→0 → $x\to 0$
+// 已存在的公式($ / $$)、代码块、行内代码、markdown 链接不会被误伤。
+const MATH_CHAR = /[A-Za-z0-9+\-*/=<>()[\],.:;!'`^_{}\\|°±×÷≈≠≥≤→←↑↓∞∫∑∏√∂Δ∇παβγδεθλμνφψωΩ∈⊂⊆∪∩∀∃₀₁₂₃₄₅₆₇₈₉⁰¹²³⁴⁵⁶⁷⁸⁹ⁿ⁻⁺]/
+const MATH_MARKER = /[\^_\\∫∑∏√∞→←↑↓≠≈≥≤±×÷∂Δ∇παβγδεθλμνφψωΩ₀₁₂₃₄₅₆₇₈₉⁰¹²³⁴⁵⁶⁷⁸⁹ⁿ⁻⁺]/
+const UNI_TO_LATEX = {
+  '→': '\\to', '←': '\\gets', '∞': '\\infty', '∑': '\\sum', '∫': '\\int', '∏': '\\prod',
+  '×': '\\times', '÷': '\\div', '≠': '\\ne', '≥': '\\ge', '≤': '\\le', '≈': '\\approx',
+  '±': '\\pm', '∂': '\\partial', 'π': '\\pi', 'α': '\\alpha', 'β': '\\beta', 'γ': '\\gamma',
+  'δ': '\\delta', 'ε': '\\epsilon', 'θ': '\\theta', 'λ': '\\lambda', 'μ': '\\mu',
+  'φ': '\\phi', 'ψ': '\\psi', 'ω': '\\omega', 'Δ': '\\Delta',
+  '₀': '_0', '₁': '_1', '₂': '_2', '₃': '_3', '₄': '_4',
+  '₅': '_5', '₆': '_6', '₇': '_7', '₈': '_8', '₉': '_9',
+  '⁰': '^0', '¹': '^1', '²': '^2', '³': '^3', '⁴': '^4',
+  '⁵': '^5', '⁶': '^6', '⁷': '^7', '⁸': '^8', '⁹': '^9',
+  'ⁿ': '^n', '⁻': '^-', '⁺': '^+',
+}
+
+function isMathChar(ch) { return MATH_CHAR.test(ch) }
+
+function needsMathWrap(tok) {
+  if (!tok || tok.length > 24) return false
+  return MATH_MARKER.test(tok)
+}
+
+function toLatex(tok) {
+  let t = tok
+  for (const k in UNI_TO_LATEX) t = t.split(k).join(UNI_TO_LATEX[k])
+  return t
+}
+
+function wrapPlainMath(src) {
+  const guards = []
+  const guard = (m) => { guards.push(m); return '[[G]]' + (guards.length - 1) + '[[G]]' }
+  // 先保护已有公式/代码/链接
+  let s = (src || '')
+    .replace(/\$\$[\s\S]*?\$\$/g, guard)
+    .replace(/\$[^$\n]*?\$/g, guard)
+    .replace(/```[\s\S]*?```/g, guard)
+    .replace(/`[^`\n]*`/g, guard)
+    .replace(/\[[^\]]*\]\([^)]*\)/g, guard)
+  let out = ''
+  let i = 0
+  while (i < s.length) {
+    const ch = s[i]
+    if (s.startsWith('[[G]]', i)) {
+      const j = s.indexOf('[[G]]', i + 5)
+      out += guards[parseInt(s.slice(i + 5, j), 10)]
+      i = j + 5
+      continue
+    }
+    if (isMathChar(ch)) {
+      // 扫描一个"数学片段"（追踪花括号，让 \frac{1}{2} 保持完整）
+      let j = i
+      let braces = 0
+      while (j < s.length) {
+        const c = s[j]
+        if (c === '{') braces++
+        if (c === '}') braces--
+        if (braces < 0) break
+        if (braces === 0 && !isMathChar(c)) break
+        j++
+      }
+      const tok = s.slice(i, j)
+      if (needsMathWrap(tok)) out += '$' + toLatex(tok) + '$'
+      else out += tok
+      i = j
+      continue
+    }
+    out += ch
+    i++
+  }
+  return out
+}
+
 // 统一两种公式格式为 dollars（markdown-it-texmath 的 dollars 模式支持 $ 和 $$）：
 // - DeepSeek 回复用 \(...\) 和 \[...\] → 转成 $ 和 $$
 // - 知识库内容本来就用 $...$ 和 $$...$$，保持不变
@@ -84,7 +160,7 @@ function normalizeFormulas(src) {
   return out
 }
 
-const rendered = computed(() => md.render(normalizeFormulas(props.content)))
+const rendered = computed(() => md.render(wrapPlainMath(normalizeFormulas(props.content))))
 </script>
 
 <template>

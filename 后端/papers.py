@@ -12,7 +12,7 @@ from config import get
 router = APIRouter(prefix="/api", tags=["组卷/判卷/错题"])
 
 DEEPSEEK_API = "https://api.deepseek.com/chat/completions"
-DEEPSEEK_KEY = get("DEEPSEEK_KEY", "REDACTED-USE-ENV")
+DEEPSEEK_KEY = get("DEEPSEEK_KEY", "")  # 从 .env 读取, 勿硬编码
 
 
 class PaperConfig(BaseModel):
@@ -20,6 +20,8 @@ class PaperConfig(BaseModel):
     title: str = ""
     counts: dict = {}
     difficulties: dict = {}
+    passages: int = 0  # 英语阅读按文章组卷: 抽几篇文章(每篇5题) + 1道翻译
+    knowledge_points: dict = {}  # 英语自主选题型组卷: {"阅读": 篇数, "翻译": 题数, "词汇": 题数, ...}
 
 
 class SubmitIn(BaseModel):
@@ -42,6 +44,95 @@ def create_paper(pc: PaperConfig):
     # counts: {"single": 5, "multiple": 2, "judge": 3, "blank": 2, "short": 1}
     counts = pc.counts or {"single": 5, "multiple": 2, "judge": 3, "blank": 2, "short": 1}
     difficulties = pc.difficulties or {"easy": 40, "medium": 40, "hard": 20}
+
+    # 英语按题型自主组卷: knowledge_points = {"阅读": 篇数, "翻译": 题数, ...}
+    if pc.subject == "english" and pc.knowledge_points:
+        import random
+        picked = []
+        for kp, cnt in pc.knowledge_points.items():
+            if cnt <= 0:
+                continue
+            if kp == "阅读":
+                keys = [r[0] for r in conn.execute(
+                    "SELECT DISTINCT passage_key FROM questions "
+                    "WHERE subject='english' AND passage_key != '' ORDER BY RANDOM()").fetchall()]
+                for k in random.sample(keys, min(cnt, len(keys))):
+                    rows = conn.execute(
+                        "SELECT * FROM questions WHERE subject='english' AND passage_key=? "
+                        "ORDER BY id", (k,)).fetchall()
+                    picked.extend([row_to_dict(r) for r in rows])
+            elif kp == "翻译":
+                rows = conn.execute(
+                    "SELECT * FROM questions WHERE subject='english' AND knowledge_point='翻译' "
+                    "AND qtype='short' ORDER BY RANDOM() LIMIT ?", (cnt,)).fetchall()
+                picked.extend([row_to_dict(r) for r in rows])
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM questions WHERE subject='english' AND knowledge_point=? "
+                    "ORDER BY RANDOM() LIMIT ?", (kp, cnt)).fetchall()
+                picked.extend([row_to_dict(r) for r in rows])
+        # 按 id 去重保持顺序
+        seen, ordered = set(), []
+        for q in picked:
+            if q["id"] not in seen:
+                seen.add(q["id"])
+                ordered.append(q)
+        picked = ordered
+        if not picked:
+            conn.close()
+            raise HTTPException(status_code=400, detail="所选题型暂无可用题目，请重新选择")
+        parts = [f"{kp}×{cnt}{'篇' if kp == '阅读' else '题'}"
+                 for kp, cnt in pc.knowledge_points.items() if cnt > 0]
+        title = pc.title or ("英语四级 · " + "+".join(parts))
+        cur = conn.execute("INSERT INTO papers (subject, title, config) VALUES (?,?,?)",
+                           (pc.subject, title, json.dumps({"counts": counts, "difficulties": difficulties,
+                                                          "knowledge_points": pc.knowledge_points}, ensure_ascii=False)))
+        paper_id = cur.lastrowid
+        for i, q in enumerate(picked):
+            conn.execute("INSERT INTO paper_questions (paper_id, question_id, position) VALUES (?,?,?)",
+                         (paper_id, q["id"], i + 1))
+        conn.commit()
+        conn.close()
+        return {"code": 200, "paper_id": paper_id, "title": title, "question_count": len(picked)}
+
+    # 英语阅读按文章组卷: 随机抽 N 篇文章(每篇5题) + 1道翻译简答
+    if pc.passages > 0 and pc.subject == "english":
+        import random
+        keys = [r[0] for r in conn.execute(
+            "SELECT DISTINCT passage_key FROM questions "
+            "WHERE subject='english' AND passage_key != '' ORDER BY RANDOM()").fetchall()]
+        if keys:
+            n = min(pc.passages, len(keys))
+            chosen = random.sample(keys, n)
+            picked = []
+            for k in chosen:
+                rows = conn.execute(
+                    "SELECT * FROM questions WHERE subject='english' AND passage_key=? "
+                    "ORDER BY passage_key, id", (k,)).fetchall()
+                picked.extend([row_to_dict(r) for r in rows])
+            # 补一道翻译
+            tro = conn.execute(
+                "SELECT * FROM questions WHERE subject='english' AND qtype='short' "
+                "AND knowledge_point='翻译' ORDER BY RANDOM() LIMIT 1").fetchone()
+            if tro:
+                picked.append(row_to_dict(tro))
+        else:
+            picked = []
+
+        if not picked:
+            conn.close()
+            raise HTTPException(status_code=400, detail="英语题库暂无可用题目，请先导入真题")
+        title = pc.title or f"英语四级 · 真题自测（{n}篇阅读+翻译）"
+        cur = conn.execute("INSERT INTO papers (subject, title, config) VALUES (?,?,?)",
+                           (pc.subject, title, json.dumps({"counts": counts, "difficulties": difficulties,
+                                                          "passages": pc.passages}, ensure_ascii=False)))
+        paper_id = cur.lastrowid
+        for i, q in enumerate(picked):
+            conn.execute("INSERT INTO paper_questions (paper_id, question_id, position) VALUES (?,?,?)",
+                         (paper_id, q["id"], i + 1))
+        conn.commit()
+        conn.close()
+        return {"code": 200, "paper_id": paper_id, "title": title, "question_count": len(picked)}
 
     picked = []
     total_each = {t: counts.get(t, 0) for t in ("single", "multiple", "judge", "blank", "short")}

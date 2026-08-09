@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, nextTick } from 'vue'
 import MarkdownRender from './components/MarkdownRender.vue'
 
 const subjects = [
@@ -8,7 +8,7 @@ const subjects = [
     name: '高等数学',
     enName: 'Calculus',
     desc: '函数极限 · 导数微分 · 积分 · 多元函数 · 微分方程',
-    accessToken: '81e652b7c938cdcb',
+    accessToken: 'a0db0c103acc013b',
     color: '#4f46e5',
     icon: '∫',
   },
@@ -17,7 +17,7 @@ const subjects = [
     name: '大学英语',
     enName: 'College English',
     desc: '核心词汇 · 语法 · 阅读理解 · 写作技巧',
-    accessToken: '4ecd86138bcbf5ec',
+    accessToken: '6a8aa556e0c7e490',
     color: '#0d9488',
     icon: 'A',
   },
@@ -115,6 +115,22 @@ const quizMode = ref('')
 const quizPaperId = ref(null)
 const studentName = ref(localStorage.getItem('student_name') || '同学')
 const quizCounts = ref({ single: 3, multiple: 0, judge: 2, blank: 1, short: 1 })
+const quizPassages = ref(0)
+// 各科目自测配置: 数学走通用题库(固定), 英语走自主选题型
+const SUBJECT_QUIZ = {
+  math: { counts: { single: 3, multiple: 0, judge: 2, blank: 1, short: 1 }, passages: 0 },
+  english: { counts: { single: 0, multiple: 0, judge: 0, blank: 0, short: 1 }, passages: 2 },
+}
+// 英语题型选择定义(阅读按"篇"抽题, 每篇5道真题; 翻译为真题简答; 其余为 demo 补充)
+const ENGLISH_TYPES = [
+  { kp: '阅读', label: '阅读理解', unit: '篇文章', max: 5, count: 1, enabled: true },
+  { kp: '翻译', label: '段落翻译', unit: '道题', max: 9, count: 1, enabled: true },
+  { kp: '词汇', label: '核心词汇', unit: '道题', max: 5, count: 3, enabled: false },
+  { kp: '语法', label: '语法练习', unit: '道题', max: 5, count: 3, enabled: false },
+  { kp: '写作', label: '写作技巧', unit: '道题', max: 3, count: 2, enabled: false },
+  { kp: '听力', label: '听力理解', unit: '道题', max: 1, count: 1, enabled: false },
+]
+const quizConfig = ref([])
 const wrongBook = ref([])
 
 function multiKey(qid) { return 'mul_' + qid }
@@ -139,16 +155,35 @@ function goHome() {
 }
 
 // ============ 对话 ============
+const chatBodyRef = ref(null)
+const quickQuestions = {
+  math: ['泰勒展开是什么？', '导数的定义', '洛必达法则', '定积分怎么算'],
+  english: ['解释一下虚拟语气', '定语从句怎么用', '作文常用句型', '高频核心词汇'],
+}
+
+function nowTime() {
+  const d = new Date()
+  return d.getHours().toString().padStart(2, '0') + ':' + d.getMinutes().toString().padStart(2, '0')
+}
+
+function scrollToBottom() {
+  nextTick(() => {
+    const el = chatBodyRef.value
+    if (el) el.scrollTop = el.scrollHeight
+  })
+}
+
 function openChat(subject) {
   activeSubject.value = subject
   view.value = 'chat'
+  startSession(subject)
+  nextTick(() => document.querySelector('.chat-input')?.focus())
+}
+
+async function startSession(subject) {
   messages.value = []
   chatId.value = ''
   chatToken.value = ''
-  openSession(subject)
-}
-
-async function openSession(subject) {
   try {
     const res = await fetch('/chat/api/auth/anonymous', {
       method: 'POST',
@@ -163,18 +198,27 @@ async function openSession(subject) {
     })
     const openData = await openRes.json()
     chatId.value = openData.data
-    messages.value.push({ role: 'ai', content: `你好！我是${subject.name}助教，有什么问题尽管问我。` })
   } catch (e) {
-    messages.value.push({ role: 'ai', content: '连接失败：' + e.message })
+    messages.value.push({ role: 'ai', content: '连接失败：' + e.message, time: nowTime() })
   }
+}
+
+function newChat() {
+  if (activeSubject.value) startSession(activeSubject.value)
+}
+
+function sendQuick(q) {
+  input.value = q
+  sendMessage()
 }
 
 async function sendMessage() {
   const text = input.value.trim()
   if (!text || chatLoading.value) return
   input.value = ''
-  messages.value.push({ role: 'user', content: text })
+  messages.value.push({ role: 'user', content: text, time: nowTime() })
   chatLoading.value = true
+  scrollToBottom()
   try {
     const res = await fetch(`/chat/api/chat_message/${chatId.value}`, {
       method: 'POST',
@@ -186,35 +230,84 @@ async function sendMessage() {
     })
     const data = await res.json()
     const answer = data.data?.content || '（无回复）'
-    messages.value.push({ role: 'ai', content: answer })
+    messages.value.push({ role: 'ai', content: answer, time: nowTime() })
   } catch (e) {
-    messages.value.push({ role: 'ai', content: '请求失败：' + e.message })
+    messages.value.push({ role: 'ai', content: '请求失败：' + e.message, time: nowTime() })
   } finally {
     chatLoading.value = false
+    scrollToBottom()
   }
 }
 
 // ============ 自测 ============
 function openQuiz(subject) {
+  view.value = 'quiz'
   quizSubject.value = subject
+  quizQuestions.value = []
+  quizAnswers.value = {}
+  quizResult.value = null
+  quizPaperId.value = null
+  if (subject.id === 'english') {
+    // 英语: 先出题型选择面板, 不立即组卷
+    quizMode.value = 'setup'
+    quizConfig.value = ENGLISH_TYPES.map(t => ({ ...t }))
+    return
+  }
+  // 数学: 直接按默认配置组卷
+  quizMode.value = 'doing'
+  const cfg = SUBJECT_QUIZ[subject.id] || SUBJECT_QUIZ.math
+  quizCounts.value = { ...cfg.counts }
+  quizPassages.value = cfg.passages
+  startQuiz(subject)
+}
+
+function beginQuiz() {
+  const sel = quizConfig.value.filter(t => t.enabled && t.count > 0)
+  if (!sel.length) {
+    alert('请至少选择一种题型')
+    return
+  }
   quizMode.value = 'doing'
   quizQuestions.value = []
   quizAnswers.value = {}
   quizResult.value = null
   quizPaperId.value = null
-  startQuiz(subject)
+  startQuiz(quizSubject.value)
+}
+
+// 再来一套: 英语复用当前题型配置直接重开, 数学走 openQuiz
+function redoQuiz() {
+  if (quizSubject.value.id === 'english' && quizConfig.value.length) {
+    quizMode.value = 'doing'
+    quizQuestions.value = []
+    quizAnswers.value = {}
+    quizResult.value = null
+    quizPaperId.value = null
+    startQuiz(quizSubject.value)
+  } else {
+    openQuiz(quizSubject.value)
+  }
 }
 
 async function startQuiz(subject) {
   quizLoading.value = true
   try {
+    const isEn = subject.id === 'english'
+    const kpConfig = {}
+    if (isEn) {
+      for (const t of quizConfig.value) {
+        if (t.enabled && t.count > 0) kpConfig[t.kp] = t.count
+      }
+    }
     const res = await fetch('/api/papers', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         subject: subject.id,
         title: `${subject.name}智能组卷`,
-        counts: quizCounts.value,
+        counts: isEn ? { single: 0, multiple: 0, judge: 0, blank: 0, short: 1 } : quizCounts.value,
+        passages: isEn ? 0 : quizPassages.value,
+        knowledge_points: kpConfig,
       }),
     })
     const data = await res.json()
@@ -278,6 +371,53 @@ async function loadWrongBook() {
   } catch (e) {}
 }
 
+// ============ 学情看板(教师端) ============
+const teacherSubject = ref('math')
+const tOverview = ref(null)
+const tKnowledge = ref([])
+const tTrends = ref([])
+const tWrong = ref([])
+const tLoading = ref(false)
+
+async function openTeacher() {
+  view.value = 'teacher'
+  loadAnalytics()
+}
+
+async function loadAnalytics() {
+  tLoading.value = true
+  try {
+    const base = `/api/analytics`
+    const s = teacherSubject.value
+    const [ov, kn, tr, wr] = await Promise.all([
+      fetch(`${base}/overview?subject=${s}`).then(r => r.json()),
+      fetch(`${base}/knowledge?subject=${s}`).then(r => r.json()),
+      fetch(`${base}/trends?subject=${s}`).then(r => r.json()),
+      fetch(`${base}/wrong?subject=${s}`).then(r => r.json()),
+    ])
+    tOverview.value = ov
+    tKnowledge.value = kn.items || []
+    tTrends.value = tr.items || []
+    tWrong.value = wr.items || []
+  } catch (e) {
+    tOverview.value = null
+  }
+  tLoading.value = false
+}
+
+function switchTeacherSubject(id) {
+  teacherSubject.value = id
+  loadAnalytics()
+}
+
+function kpColor(acc) {
+  return acc >= 80 ? '#10b981' : acc >= 60 ? '#f59e0b' : '#ef4444'
+}
+
+function maxWrong() {
+  return Math.max(1, ...tWrong.value.map(w => w.count))
+}
+
 onMounted(() => {
   loadWrongBook()
 })
@@ -315,6 +455,66 @@ onMounted(() => {
           </div>
         </div>
         <div class="add-tip">新增科目只需在配置中添加知识库与应用即可扩展</div>
+        <button class="teacher-entry-btn" @click="openTeacher">📊 教师端 · 学情分析看板</button>
+      </div>
+
+      <!-- ======== 学情看板(教师端) ======== -->
+      <div v-else-if="view === 'teacher'" class="teacher-page">
+        <div class="page-head">
+          <button class="back-btn" @click="goHome">← 返回</button>
+          <h2 class="page-title">学情分析看板</h2>
+          <div class="teacher-tabs">
+            <button :class="{ active: teacherSubject === 'math' }" @click="switchTeacherSubject('math')">高等数学</button>
+            <button :class="{ active: teacherSubject === 'english' }" @click="switchTeacherSubject('english')">大学英语</button>
+          </div>
+        </div>
+
+        <div v-if="tLoading" class="empty-tip">加载中…</div>
+        <div v-else-if="!tOverview || !tOverview.tests" class="empty-tip">该科目暂无测试数据，让学生先自测一下吧</div>
+        <template v-else>
+          <div class="stat-grid">
+            <div class="stat-card"><div class="stat-num">{{ tOverview.tests }}</div><div class="stat-label">测试次数</div></div>
+            <div class="stat-card"><div class="stat-num">{{ tOverview.students }}</div><div class="stat-label">学生数</div></div>
+            <div class="stat-card"><div class="stat-num">{{ tOverview.avg }}</div><div class="stat-label">平均分</div></div>
+            <div class="stat-card"><div class="stat-num">{{ tOverview.pass_rate }}%</div><div class="stat-label">及格率</div></div>
+            <div class="stat-card"><div class="stat-num">{{ tOverview.accuracy }}%</div><div class="stat-label">总正确率</div></div>
+            <div class="stat-card"><div class="stat-num">{{ tOverview.wrong_count }}</div><div class="stat-label">错题数</div></div>
+          </div>
+
+          <div class="dash-grid">
+            <div class="dash-card">
+              <h3 class="dash-title">知识点掌握度</h3>
+              <div v-for="k in tKnowledge" :key="k.knowledge_point" class="kp-row">
+                <div class="kp-name">{{ k.knowledge_point }}</div>
+                <div class="kp-bar-wrap">
+                  <div class="kp-bar" :style="{ width: k.accuracy + '%', background: kpColor(k.accuracy) }"></div>
+                </div>
+                <div class="kp-val">{{ k.accuracy }}%</div>
+              </div>
+            </div>
+
+            <div class="dash-card">
+              <h3 class="dash-title">错题知识点分布</h3>
+              <div v-for="w in tWrong" :key="w.knowledge_point" class="kp-row">
+                <div class="kp-name">{{ w.knowledge_point }}</div>
+                <div class="kp-bar-wrap">
+                  <div class="kp-bar wrong-bar2" :style="{ width: (w.count / maxWrong() * 100) + '%' }"></div>
+                </div>
+                <div class="kp-val">{{ w.count }}</div>
+              </div>
+            </div>
+
+            <div class="dash-card trend-card">
+              <h3 class="dash-title">班级平均分趋势</h3>
+              <div class="trend-bars">
+                <div v-for="t in tTrends" :key="t.date" class="trend-col">
+                  <div class="trend-bar" :style="{ height: Math.max(4, t.avg_score) + '%' }" :title="t.date + ' 平均 ' + t.avg_score"></div>
+                  <div class="trend-date">{{ t.date.slice(5) }}</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </template>
       </div>
 
       <!-- ======== 错题本 ======== -->
@@ -387,32 +587,55 @@ onMounted(() => {
       </div>
 
       <!-- ======== 对话页 ======== -->
-      <div v-else-if="view === 'chat'" class="chat-page">
+      <div v-else-if="view === 'chat'" class="chat-page" :style="{ '--accent': activeSubject.color }">
         <div class="chat-header">
-          <button class="back-btn" @click="goHome">← 返回</button>
+          <button class="back-btn" @click="goHome">←</button>
           <div class="chat-title">
             <span class="chat-icon" :style="{ background: activeSubject.color }">{{ activeSubject.icon }}</span>
-            <span>{{ activeSubject.name }} · AI 答疑</span>
-          </div>
-          <div class="chat-model">DeepSeek-V4-Flash</div>
-        </div>
-        <div class="chat-body">
-          <div v-for="(m, i) in messages" :key="i" class="msg-row" :class="m.role">
-            <div class="msg-bubble">
-              <div v-if="m.role === 'ai'" class="msg-icon" :style="{ background: activeSubject.color }">{{ activeSubject.icon }}</div>
-              <div class="msg-text"><MarkdownRender :content="m.content" /></div>
+            <div class="chat-title-text">
+              <span class="chat-name">{{ activeSubject.name }} · AI 答疑</span>
+              <span class="chat-status"><i class="dot"></i>在线</span>
             </div>
           </div>
-          <div v-if="chatLoading" class="msg-row ai">
-            <div class="msg-bubble">
-              <div class="msg-icon" :style="{ background: activeSubject.color }">{{ activeSubject.icon }}</div>
-              <div class="msg-text typing">正在思考…</div>
+          <button class="new-chat-btn" @click="newChat">🔄 新对话</button>
+          <div class="chat-model">DeepSeek</div>
+        </div>
+
+        <div ref="chatBodyRef" class="chat-body">
+          <!-- 欢迎屏 -->
+          <div v-if="!messages.length && !chatLoading" class="welcome">
+            <div class="welcome-icon" :style="{ background: activeSubject.color }">{{ activeSubject.icon }}</div>
+            <h3 class="welcome-title">你好，我是{{ activeSubject.name }}AI助教</h3>
+            <p class="welcome-desc">基于课程知识库的智能答疑助手，可以问我任何问题</p>
+            <div class="quick-chips">
+              <button v-for="q in (quickQuestions[activeSubject.id] || [])" :key="q" class="chip" @click="sendQuick(q)">{{ q }}</button>
             </div>
           </div>
+
+          <!-- 消息区 -->
+          <template v-else>
+            <div v-for="(m, i) in messages" :key="i" class="msg-row" :class="m.role">
+              <div v-if="m.role === 'ai'" class="msg-avatar" :style="{ background: activeSubject.color }">{{ activeSubject.icon }}</div>
+              <div class="msg-content">
+                <div class="msg-bubble"><MarkdownRender :content="m.content" /></div>
+                <div v-if="m.time" class="msg-time">{{ m.time }}</div>
+              </div>
+              <div v-if="m.role === 'user'" class="msg-avatar user-avatar">我</div>
+            </div>
+
+            <!-- 打字动画 -->
+            <div v-if="chatLoading" class="msg-row ai">
+              <div class="msg-avatar" :style="{ background: activeSubject.color }">{{ activeSubject.icon }}</div>
+              <div class="msg-content">
+                <div class="msg-bubble typing-dots"><i></i><i></i><i></i></div>
+              </div>
+            </div>
+          </template>
         </div>
+
         <div class="chat-input-area">
-          <input v-model="input" class="chat-input" placeholder="输入你的问题…" @keyup.enter="sendMessage" :disabled="chatLoading" />
-          <button class="send-btn" :disabled="chatLoading || !input.trim()" @click="sendMessage">发送</button>
+          <input v-model="input" class="chat-input" placeholder="输入你的问题，回车发送…" @keyup.enter="sendMessage" :disabled="chatLoading" />
+          <button class="send-btn" :disabled="chatLoading || !input.trim()" @click="sendMessage">➤</button>
         </div>
       </div>
 
@@ -424,14 +647,42 @@ onMounted(() => {
             <span class="chat-icon" :style="{ background: quizSubject.color }">{{ quizSubject.icon }}</span>
             <span>{{ quizSubject.name }} · 智能自测</span>
           </div>
-          <div class="chat-model">{{ quizMode === 'done' ? '已判卷' : '在线作答' }}</div>
+          <div class="chat-model">{{ quizMode === 'setup' ? '题型选择' : quizMode === 'done' ? '已判卷' : '在线作答' }}</div>
         </div>
+
+        <template v-if="quizMode === 'setup'">
+          <div class="quiz-setup">
+            <div class="setup-tip">选择本次自测要练习的题型（阅读按"篇"抽题，每篇含 5 道真题）</div>
+            <div class="setup-list">
+              <div v-for="t in quizConfig" :key="t.kp" class="setup-row" :class="{ on: t.enabled }">
+                <label class="setup-toggle">
+                  <input type="checkbox" v-model="t.enabled" />
+                  <span class="setup-name">{{ t.label }}</span>
+                  <span class="setup-count">{{ t.kp === '阅读' ? '真题 ' + (t.max * 5) + ' 题' : '共 ' + t.max + ' 题' }}</span>
+                </label>
+                <div v-if="t.enabled" class="setup-stepper">
+                  <button class="step-btn" @click="t.count > 1 && t.count--">−</button>
+                  <span class="step-val">{{ t.count }} {{ t.unit }}</span>
+                  <button class="step-btn" @click="t.count < t.max && t.count++">+</button>
+                </div>
+              </div>
+            </div>
+            <div class="quiz-submit-bar">
+              <button class="send-btn" @click="beginQuiz">开始自测</button>
+            </div>
+          </div>
+        </template>
 
         <template v-if="quizMode === 'doing'">
           <div v-if="quizLoading" class="empty-tip">正在智能组卷…</div>
           <div v-else class="quiz-body">
             <div class="quiz-list">
-              <div v-for="(q, qi) in quizQuestions" :key="q.id" class="quiz-card">
+              <template v-for="(q, qi) in quizQuestions" :key="q.id">
+                <div v-if="q.passage && (qi === 0 || quizQuestions[qi-1].passage !== q.passage)" class="passage-card">
+                  <div class="passage-title">📄 阅读理解 · {{ q.passage_key }}</div>
+                  <div class="passage-text"><MarkdownRender :content="q.passage" /></div>
+                </div>
+                <div class="quiz-card">
                 <div class="quiz-head">
                   <span class="quiz-num">{{ qi + 1 }}</span>
                   <span class="quiz-type">{{ typeLabels[q.qtype] }}</span>
@@ -468,9 +719,10 @@ onMounted(() => {
                 </div>
 
                 <div v-if="q.qtype === 'short'" class="quiz-short">
-                  <textarea v-model="quizAnswers[q.id]" class="short-input" placeholder="请输入你的回答…" rows="4"></textarea>
+                  <textarea v-model="quizAnswers[q.id]" class="short-input" placeholder="请输入你的回答…" rows="6"></textarea>
                 </div>
               </div>
+              </template>
             </div>
             <div class="quiz-submit-bar">
               <div class="student-name">
@@ -490,7 +742,12 @@ onMounted(() => {
           </div>
           <div class="quiz-body">
             <div class="quiz-list">
-              <div v-for="(q, qi) in quizQuestions" :key="q.id" class="quiz-card" :class="quizResult.results[q.id]?.correct ? 'correct-card' : 'wrong-card2'">
+              <template v-for="(q, qi) in quizQuestions" :key="q.id">
+                <div v-if="q.passage && (qi === 0 || quizQuestions[qi-1].passage !== q.passage)" class="passage-card">
+                  <div class="passage-title">📄 阅读理解 · {{ q.passage_key }}</div>
+                  <div class="passage-text"><MarkdownRender :content="q.passage" /></div>
+                </div>
+                <div class="quiz-card" :class="quizResult.results[q.id]?.correct ? 'correct-card' : 'wrong-card2'">
                 <div class="quiz-head">
                   <span class="quiz-num">{{ qi + 1 }}</span>
                   <span class="quiz-type">{{ typeLabels[q.qtype] }}</span>
@@ -507,9 +764,11 @@ onMounted(() => {
                   </div>
                 </div>
               </div>
+              </template>
             </div>
             <div class="quiz-submit-bar">
-              <button class="send-btn" @click="openQuiz(quizSubject)">再来一套</button>
+              <button class="send-btn" @click="redoQuiz">再来一套</button>
+              <button v-if="quizSubject.id === 'english'" class="back-btn" @click="openQuiz(quizSubject)">调整题型</button>
               <button class="back-btn" @click="loadWrongBook(); view = 'wrong'">查看错题本</button>
             </div>
           </div>

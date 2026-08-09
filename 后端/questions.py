@@ -11,7 +11,7 @@ from config import get
 router = APIRouter(prefix="/api/questions", tags=["题库"])
 
 DEEPSEEK_API = "https://api.deepseek.com/chat/completions"
-DEEPSEEK_KEY = get("DEEPSEEK_KEY", "REDACTED-USE-ENV")
+DEEPSEEK_KEY = get("DEEPSEEK_KEY", "")  # 从 .env 读取, 勿硬编码
 
 
 class QuestionIn(BaseModel):

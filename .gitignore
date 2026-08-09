@@ -7,6 +7,7 @@
 门户/node_modules/
 门户/dist/
 门户/vite-dev.log
+门户/vite.log
 
 # ===== 敏感信息（绝不上传） =====
 *.env

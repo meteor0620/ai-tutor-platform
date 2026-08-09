@@ -48,7 +48,7 @@ Start-Sleep -Seconds 10
 
 Write-Host "" -ForegroundColor Green
 Write-Host "=== 启动完成 ===" -ForegroundColor Cyan
-Write-Host "MaxKB 管理后台: http://localhost:8080  (账号 meteor / lsy0620QAQ!)"
+Write-Host "MaxKB 管理后台: http://localhost:8081  (账号/密码见后端/.env)"
 Write-Host "后端 API:        http://localhost:8001"
 Write-Host "学生门户界面:    http://localhost:5173"
 Write-Host "浏览器打开上述地址即可使用" -ForegroundColor Green

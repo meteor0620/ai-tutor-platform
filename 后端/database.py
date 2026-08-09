@@ -31,6 +31,8 @@ def init_db():
         answer TEXT NOT NULL,
         analysis TEXT DEFAULT '',
         source TEXT DEFAULT 'manual',
+        passage TEXT DEFAULT '',
+        passage_key TEXT DEFAULT '',
         create_time TEXT DEFAULT (datetime('now', 'localtime'))
     );
 

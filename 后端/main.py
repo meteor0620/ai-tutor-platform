@@ -6,6 +6,7 @@ from database import init_db
 import questions
 import papers
 import knowledge
+import analytics
 
 app = FastAPI(title="AI 教辅智学平台后端", version="1.0.0")
 
@@ -24,6 +25,7 @@ def startup():
 app.include_router(questions.router)
 app.include_router(papers.router)
 app.include_router(knowledge.router)
+app.include_router(analytics.router)
 
 @app.get("/")
 def root():
