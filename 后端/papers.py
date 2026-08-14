@@ -22,6 +22,7 @@ class PaperConfig(BaseModel):
     difficulties: dict = {}
     passages: int = 0  # 英语阅读按文章组卷: 抽几篇文章(每篇5题) + 1道翻译
     knowledge_points: dict = {}  # 英语自主选题型组卷: {"阅读": 篇数, "翻译": 题数, "词汇": 题数, ...}
+    source: str = "auto"  # auto=学生随机组卷 / teacher=教师指定卷
 
 
 class SubmitIn(BaseModel):
@@ -84,9 +85,10 @@ def create_paper(pc: PaperConfig):
         parts = [f"{kp}×{cnt}{'篇' if kp == '阅读' else '题'}"
                  for kp, cnt in pc.knowledge_points.items() if cnt > 0]
         title = pc.title or ("英语四级 · " + "+".join(parts))
-        cur = conn.execute("INSERT INTO papers (subject, title, config) VALUES (?,?,?)",
+        cur = conn.execute("INSERT INTO papers (subject, title, config, source) VALUES (?,?,?,?)",
                            (pc.subject, title, json.dumps({"counts": counts, "difficulties": difficulties,
-                                                          "knowledge_points": pc.knowledge_points}, ensure_ascii=False)))
+                                                          "knowledge_points": pc.knowledge_points}, ensure_ascii=False),
+                            pc.source))
         paper_id = cur.lastrowid
         for i, q in enumerate(picked):
             conn.execute("INSERT INTO paper_questions (paper_id, question_id, position) VALUES (?,?,?)",
@@ -123,9 +125,10 @@ def create_paper(pc: PaperConfig):
             conn.close()
             raise HTTPException(status_code=400, detail="英语题库暂无可用题目，请先导入真题")
         title = pc.title or f"英语四级 · 真题自测（{n}篇阅读+翻译）"
-        cur = conn.execute("INSERT INTO papers (subject, title, config) VALUES (?,?,?)",
+        cur = conn.execute("INSERT INTO papers (subject, title, config, source) VALUES (?,?,?,?)",
                            (pc.subject, title, json.dumps({"counts": counts, "difficulties": difficulties,
-                                                          "passages": pc.passages}, ensure_ascii=False)))
+                                                          "passages": pc.passages}, ensure_ascii=False),
+                            pc.source))
         paper_id = cur.lastrowid
         for i, q in enumerate(picked):
             conn.execute("INSERT INTO paper_questions (paper_id, question_id, position) VALUES (?,?,?)",
@@ -162,8 +165,9 @@ def create_paper(pc: PaperConfig):
         raise HTTPException(status_code=400, detail="题库中没有可用的题目，请先录题或生成题目")
 
     title = pc.title or f"{pc.subject} 智能组卷"
-    cur = conn.execute("INSERT INTO papers (subject, title, config) VALUES (?,?,?)",
-                       (pc.subject, title, json.dumps({"counts": counts, "difficulties": difficulties}, ensure_ascii=False)))
+    cur = conn.execute("INSERT INTO papers (subject, title, config, source) VALUES (?,?,?,?)",
+                       (pc.subject, title, json.dumps({"counts": counts, "difficulties": difficulties}, ensure_ascii=False),
+                        pc.source))
     paper_id = cur.lastrowid
     for i, q in enumerate(picked):
         conn.execute("INSERT INTO paper_questions (paper_id, question_id, position) VALUES (?,?,?)",
@@ -174,16 +178,19 @@ def create_paper(pc: PaperConfig):
 
 
 @router.get("/papers")
-def list_papers(subject: str = ""):
-    """试卷列表（教师端组卷管理用），含题数"""
+def list_papers(subject: str = "", source: str = ""):
+    """试卷列表（教师端组卷管理/学生端指定卷用），含题数；source 可选过滤 teacher/auto"""
     conn = get_conn()
-    sql = ("SELECT p.id, p.subject, p.title, p.config, p.create_time, "
+    sql = ("SELECT p.id, p.subject, p.title, p.config, p.create_time, p.source, "
            "COUNT(pq.question_id) q_count FROM papers p "
            "LEFT JOIN paper_questions pq ON pq.paper_id=p.id WHERE 1=1")
     params = []
     if subject:
         sql += " AND p.subject=?"
         params.append(subject)
+    if source:
+        sql += " AND p.source=?"
+        params.append(source)
     rows = conn.execute(sql + " GROUP BY p.id ORDER BY p.create_time DESC, p.id DESC", params).fetchall()
     items = []
     for r in rows:

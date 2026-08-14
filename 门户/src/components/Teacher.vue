@@ -214,7 +214,7 @@ async function createPaper() {
   try {
     const res = await fetch('/api/papers', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ subject: subject.value, title: f.title.trim() || `${curSubject().name}教师组卷`, counts }),
+      body: JSON.stringify({ subject: subject.value, title: f.title.trim() || `${curSubject().name}教师组卷`, counts, source: 'teacher' }),
     })
     const d = await res.json()
     if (d.code === 200) { alert(`组卷成功（${d.question_count} 题）`); f.title = ''; loadPapers() }

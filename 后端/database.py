@@ -84,6 +84,10 @@ def init_db():
         UNIQUE(student_name, subject)
     );
     """)
+    # 轻量迁移：papers 表加 source 列（auto=学生随机组卷 / teacher=教师指定卷）
+    cols = [r[1] for r in conn.execute("PRAGMA table_info(papers)").fetchall()]
+    if "source" not in cols:
+        conn.execute("ALTER TABLE papers ADD COLUMN source TEXT DEFAULT 'auto'")
     conn.commit()
     conn.close()
 

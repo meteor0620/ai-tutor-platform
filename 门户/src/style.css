@@ -1363,6 +1363,19 @@ body {
 .paper-sub { font-size: 12px; color: #9ca3af; margin-top: 2px; }
 .paper-ops { display: flex; gap: 8px; }
 
+/* --- 学生端：随机自测 / 老师布置的卷 切换 --- */
+.quiz-mode-tabs {
+  display: flex; gap: 8px; margin: 12px 0 18px; justify-content: center;
+}
+.quiz-mode-tabs button {
+  padding: 8px 18px; border-radius: 999px; border: 1px solid #e5e7eb;
+  background: #fff; color: #4b5563; font-size: 14px; font-weight: 600; cursor: pointer;
+  transition: all .15s ease;
+}
+.quiz-mode-tabs button.active { background: #4f46e5; border-color: #4f46e5; color: #fff; box-shadow: 0 2px 8px rgba(79,70,229,.25); }
+.assign-area { max-width: 720px; margin: 0 auto; }
+.assign-list { max-width: 720px; margin: 14px auto 0; }
+
 /* --- 教师端表格 --- */
 .t-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .t-table th, .t-table td { text-align: left; padding: 8px 10px; border-bottom: 1px solid #f3f4f6; }

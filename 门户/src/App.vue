@@ -122,17 +122,20 @@ const SUBJECT_QUIZ = {
   math: { counts: { single: 3, multiple: 0, judge: 2, blank: 1, short: 1 }, passages: 0 },
   english: { counts: { single: 0, multiple: 0, judge: 0, blank: 0, short: 1 }, passages: 2 },
 }
-// 英语题型选择定义(阅读按"篇"抽题, 每篇5道真题; 翻译为真题简答; 其余为 demo 补充)
+// 英语题型选择定义(阅读按"篇"抽题, 每篇5道真题; 翻译为真题简答; 词汇/语法/写作为 AI 生成题)
 const ENGLISH_TYPES = [
   { kp: '阅读', label: '阅读理解', unit: '篇文章', max: 5, count: 1, enabled: true },
   { kp: '翻译', label: '段落翻译', unit: '道题', max: 9, count: 1, enabled: true },
-  { kp: '词汇', label: '核心词汇', unit: '道题', max: 5, count: 3, enabled: false },
-  { kp: '语法', label: '语法练习', unit: '道题', max: 5, count: 3, enabled: false },
-  { kp: '写作', label: '写作技巧', unit: '道题', max: 3, count: 2, enabled: false },
-  { kp: '听力', label: '听力理解', unit: '道题', max: 1, count: 1, enabled: false },
+  { kp: '词汇', label: '核心词汇', unit: '道题', max: 20, count: 5, enabled: false },
+  { kp: '语法', label: '语法练习', unit: '道题', max: 15, count: 3, enabled: false },
+  { kp: '写作', label: '写作技巧', unit: '道题', max: 10, count: 2, enabled: false },
 ]
 const quizConfig = ref([])
 const wrongBook = ref([])
+// 老师布置的指定卷
+const quizIsAssign = ref(false)
+const assignPapers = ref([])
+const assignLoading = ref(false)
 
 function multiKey(qid) { return 'mul_' + qid }
 
@@ -248,6 +251,7 @@ function openQuiz(subject) {
   quizAnswers.value = {}
   quizResult.value = null
   quizPaperId.value = null
+  quizIsAssign.value = false
   if (subject.id === 'english') {
     // 英语: 先出题型选择面板, 不立即组卷
     quizMode.value = 'setup'
@@ -276,8 +280,9 @@ function beginQuiz() {
   startQuiz(quizSubject.value)
 }
 
-// 再来一套: 英语复用当前题型配置直接重开, 数学走 openQuiz
+// 再来一套: 指定卷回到卷列表; 英语复用当前题型配置重开; 数学走 openQuiz
 function redoQuiz() {
+  if (quizIsAssign.value) { openAssignList(); return }
   if (quizSubject.value.id === 'english' && quizConfig.value.length) {
     quizMode.value = 'doing'
     quizQuestions.value = []
@@ -288,6 +293,52 @@ function redoQuiz() {
   } else {
     openQuiz(quizSubject.value)
   }
+}
+
+// ============ 老师布置的指定卷 ============
+async function openAssignList() {
+  quizMode.value = 'assign'
+  quizIsAssign.value = false
+  assignLoading.value = true
+  assignPapers.value = []
+  try {
+    const res = await fetch(`/api/papers?source=teacher&subject=${quizSubject.value.id}`)
+    const d = await res.json()
+    assignPapers.value = d.items || []
+  } catch (e) { assignPapers.value = [] }
+  assignLoading.value = false
+}
+
+// 切回随机自测: 英语进题型选择, 数学直接组卷
+function toRandomQuiz() {
+  quizIsAssign.value = false
+  if (quizSubject.value.id === 'english') {
+    quizMode.value = 'setup'
+    quizConfig.value = ENGLISH_TYPES.map(t => ({ ...t }))
+  } else {
+    quizMode.value = 'doing'
+    quizQuestions.value = []
+    quizAnswers.value = {}
+    quizResult.value = null
+    quizPaperId.value = null
+    startQuiz(quizSubject.value)
+  }
+}
+
+async function takeAssignPaper(p) {
+  quizIsAssign.value = true
+  quizMode.value = 'doing'
+  quizQuestions.value = []
+  quizAnswers.value = {}
+  quizResult.value = null
+  quizLoading.value = true
+  try {
+    const res = await fetch(`/api/papers/${p.id}`)
+    const d = await res.json()
+    quizPaperId.value = p.id
+    quizQuestions.value = d.questions || []
+  } catch (e) { alert('加载试卷失败：' + e.message) }
+  quizLoading.value = false
 }
 
 async function startQuiz(subject) {
@@ -545,8 +596,31 @@ onMounted(() => {
             <span class="chat-icon" :style="{ background: quizSubject.color }">{{ quizSubject.icon }}</span>
             <span>{{ quizSubject.name }} · 智能自测</span>
           </div>
-          <div class="chat-model">{{ quizMode === 'setup' ? '题型选择' : quizMode === 'done' ? '已判卷' : '在线作答' }}</div>
+          <div class="chat-model">{{ quizMode === 'setup' ? '题型选择' : quizMode === 'done' ? '已判卷' : quizMode === 'assign' ? '老师布置的试卷' : '在线作答' }}</div>
         </div>
+
+        <!-- 随机自测 / 老师布置的卷 切换 -->
+        <div class="quiz-mode-tabs">
+          <button :class="{ active: quizMode !== 'assign' && !quizIsAssign }" @click="toRandomQuiz">🎲 随机自测</button>
+          <button :class="{ active: quizMode === 'assign' }" @click="openAssignList">📋 老师布置的试卷</button>
+        </div>
+
+        <template v-if="quizMode === 'assign'">
+          <div class="assign-area">
+            <h3 class="page-desc">老师布置的试卷 · {{ quizSubject.name }}（选一份开始作答）</h3>
+            <div v-if="assignLoading" class="empty-tip">加载中…</div>
+            <div v-else-if="!assignPapers.length" class="empty-tip">老师还没有布置试卷，切回"随机自测"练一练吧</div>
+            <div v-else class="paper-list assign-list">
+              <div v-for="p in assignPapers" :key="p.id" class="paper-row">
+                <div class="paper-info">
+                  <div class="paper-title">{{ p.title }}</div>
+                  <div class="paper-sub">{{ p.create_time }} · {{ p.q_count }} 题</div>
+                </div>
+                <button class="send-btn" @click="takeAssignPaper(p)">开始作答</button>
+              </div>
+            </div>
+          </div>
+        </template>
 
         <template v-if="quizMode === 'setup'">
           <div class="quiz-setup">
