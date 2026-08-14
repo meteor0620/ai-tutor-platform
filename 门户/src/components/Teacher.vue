@@ -1,5 +1,6 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onBeforeUnmount, nextTick, watch } from 'vue'
+import * as echarts from 'echarts'
 import MarkdownRender from './MarkdownRender.vue'
 
 const emit = defineEmits(['back'])
@@ -59,11 +60,136 @@ async function loadAnalytics() {
     tKnowledge.value = kn.items || []
     tTrends.value = tr.items || []
     tWrong.value = wr.items || []
+    nextTick(renderDashCharts)
   } catch (e) { tOverview.value = null }
   loading.value = false
 }
 function kpColor(acc) { return acc >= 80 ? '#10b981' : acc >= 60 ? '#f59e0b' : '#ef4444' }
 function maxWrong() { return Math.max(1, ...tWrong.value.map(w => w.count)) }
+
+// ============ ECharts 图表 ============
+const dashKpEl = ref(null)
+const dashWrongEl = ref(null)
+const dashTrendEl = ref(null)
+const stuRadarEl = ref(null)
+const stuTrendEl = ref(null)
+let chartInstances = []
+
+function disposeCharts() {
+  chartInstances.forEach(c => { try { c.dispose() } catch (e) {} })
+  chartInstances = []
+}
+function makeChart(el, option) {
+  if (!el) { console.warn('[chart] el 为空'); return null }
+  try {
+    const c = echarts.init(el, 'dark')
+    c.setOption(option)
+    chartInstances.push(c)
+    return c
+  } catch (e) {
+    console.error('[chart] init 失败:', e.message)
+    if (el) el.textContent = '图表加载失败: ' + (e && e.message || e)
+    return null
+  }
+}
+const axisLineStyle = { lineStyle: { color: 'rgba(255,255,255,0.2)' } }
+const splitLineStyle = { splitLine: { lineStyle: { color: 'rgba(255,255,255,0.08)' } } }
+
+function renderDashCharts() {
+  disposeCharts()
+  console.log('[chart] renderDashCharts 调用, kp=', tKnowledge.value.length, 'ref=', !!dashKpEl.value, 'wrongRef=', !!dashWrongEl.value, 'trendRef=', !!dashTrendEl.value)
+  // 知识点掌握度 → 横向条形
+  if (tKnowledge.value.length && dashKpEl.value) {
+    const kps = tKnowledge.value.slice(0, 12)
+    makeChart(dashKpEl.value, {
+      grid: { left: 100, right: 44, top: 8, bottom: 20 },
+      xAxis: { type: 'value', max: 100, ...splitLineStyle, axisLabel: { formatter: '{value}%', color: '#94a3b8' } },
+      yAxis: { type: 'category', data: kps.map(k => k.knowledge_point), ...axisLineStyle, axisLabel: { color: '#cbd5e1', fontSize: 12 } },
+      series: [{
+        type: 'bar', barWidth: 13,
+        data: kps.map(k => ({ value: k.accuracy, itemStyle: { color: kpColor(k.accuracy), borderRadius: 6 } })),
+        label: { show: true, position: 'right', formatter: '{c}%', color: '#94a3b8' },
+      }],
+    })
+  }
+  // 错题分布 → 环形
+  if (tWrong.value.length && dashWrongEl.value) {
+    makeChart(dashWrongEl.value, {
+      tooltip: { trigger: 'item', formatter: '{b}: {c} 题 ({d}%)' },
+      legend: { bottom: 0, textStyle: { color: '#94a3b8', fontSize: 11 } },
+      series: [{
+        type: 'pie', radius: ['46%', '70%'], center: ['50%', '44%'],
+        itemStyle: { borderRadius: 6, borderColor: '#131a2e', borderWidth: 2 },
+        label: { color: '#cbd5e1', fontSize: 11 },
+        data: tWrong.value.map(w => ({ name: w.knowledge_point, value: w.count })),
+      }],
+    })
+  }
+  // 平均分趋势 → 折线
+  if (tTrends.value.length && dashTrendEl.value) {
+    makeChart(dashTrendEl.value, {
+      tooltip: { trigger: 'axis' },
+      grid: { left: 40, right: 16, top: 22, bottom: 24 },
+      xAxis: { type: 'category', data: tTrends.value.map(t => t.date.slice(5)), ...axisLineStyle, axisLabel: { color: '#94a3b8' } },
+      yAxis: { type: 'value', ...splitLineStyle, axisLabel: { color: '#94a3b8' } },
+      series: [{
+        type: 'line', data: tTrends.value.map(t => t.avg_score), smooth: true, symbolSize: 7,
+        lineStyle: { width: 3, color: '#818cf8' }, itemStyle: { color: '#a5b4fc' },
+        areaStyle: { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: 'rgba(99,102,241,0.35)' }, { offset: 1, color: 'rgba(99,102,241,0)' }] } },
+      }],
+    })
+  }
+}
+
+function renderStuCharts() {
+  disposeCharts()
+  const d = detail.value
+  if (!d) return
+  // 知识点掌握度 → 雷达
+  if (d.knowledge && d.knowledge.length && stuRadarEl.value) {
+    const items = d.knowledge.slice(0, 8)
+    makeChart(stuRadarEl.value, {
+      tooltip: {},
+      radar: {
+        indicator: items.map(k => ({ name: k.knowledge_point, max: 100 })),
+        radius: '64%', center: ['50%', '50%'],
+        axisName: { color: '#cbd5e1', fontSize: 11 },
+        splitLine: { lineStyle: { color: 'rgba(255,255,255,0.14)' } },
+        splitArea: { areaStyle: { color: ['rgba(99,102,241,0.07)', 'rgba(255,255,255,0.02)'] } },
+        ...axisLineStyle,
+      },
+      series: [{
+        type: 'radar',
+        data: [{
+          value: items.map(k => k.accuracy), name: '掌握度',
+          areaStyle: { color: 'rgba(99,102,241,0.35)' },
+          lineStyle: { color: '#818cf8', width: 2 }, itemStyle: { color: '#a5b4fc' },
+        }],
+      }],
+    })
+  }
+  // 历次成绩 → 折线
+  if (d.attempts && d.attempts.length && stuTrendEl.value) {
+    makeChart(stuTrendEl.value, {
+      tooltip: { trigger: 'axis' },
+      grid: { left: 36, right: 14, top: 20, bottom: 24 },
+      xAxis: { type: 'category', data: d.attempts.map(a => (a.create_time || '').slice(5, 10)), ...axisLineStyle, axisLabel: { color: '#94a3b8' } },
+      yAxis: { type: 'value', ...splitLineStyle, axisLabel: { color: '#94a3b8' } },
+      series: [{
+        type: 'line', data: d.attempts.map(a => a.score), smooth: true, symbolSize: 6,
+        lineStyle: { width: 2.5, color: '#2dd4bf' }, itemStyle: { color: '#5eead4' },
+        areaStyle: { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: 'rgba(45,212,191,0.3)' }, { offset: 1, color: 'rgba(45,212,191,0)' }] } },
+      }],
+    })
+  }
+}
+
+onBeforeUnmount(() => {
+  disposeCharts()
+  window.removeEventListener('resize', resizeCharts)
+})
+function resizeCharts() { chartInstances.forEach(c => c.resize()) }
+window.addEventListener('resize', resizeCharts)
 
 // ============ 学生 ============
 const students = ref([])
@@ -88,8 +214,12 @@ async function openStudent(name) {
     detail.value = Object.assign(detail.value, await res.json())
   } catch (e) { detail.value.reportError = '加载失败' }
   detailLoading.value = false
+  nextTick(renderStuCharts)
 }
-function closeDetail() { detail.value = null }
+function closeDetail() {
+  disposeCharts()
+  detail.value = null
+}
 async function genReport(refresh) {
   if (!detail.value) return
   reportLoading.value = true
@@ -280,6 +410,10 @@ async function kbSearch() {
   } catch (e) { kbResults.value = [] }
 }
 
+// 数据到位后驱动图表渲染（放在所有声明之后，避免 TDZ）
+watch([tKnowledge, tWrong, tTrends], () => { nextTick(renderDashCharts) })
+watch(detail, () => { nextTick(renderStuCharts) }, { deep: true })
+
 onMounted(() => { loadAnalytics() })
 </script>
 
@@ -314,34 +448,20 @@ onMounted(() => { loadAnalytics() })
         <div class="dash-grid">
           <div class="dash-card">
             <h3 class="dash-title">知识点掌握度</h3>
-            <div v-for="k in tKnowledge" :key="k.knowledge_point" class="kp-row">
-              <div class="kp-name">{{ k.knowledge_point }}</div>
-              <div class="kp-bar-wrap">
-                <div class="kp-bar" :style="{ width: k.accuracy + '%', background: kpColor(k.accuracy) }"></div>
-              </div>
-              <div class="kp-val">{{ k.accuracy }}%</div>
-            </div>
+            <div v-if="!tKnowledge.length" class="empty-tip">暂无数据</div>
+            <div v-else ref="dashKpEl" class="t-chart"></div>
           </div>
 
           <div class="dash-card">
             <h3 class="dash-title">错题知识点分布</h3>
-            <div v-for="w in tWrong" :key="w.knowledge_point" class="kp-row">
-              <div class="kp-name">{{ w.knowledge_point }}</div>
-              <div class="kp-bar-wrap">
-                <div class="kp-bar wrong-bar2" :style="{ width: (w.count / maxWrong() * 100) + '%' }"></div>
-              </div>
-              <div class="kp-val">{{ w.count }}</div>
-            </div>
+            <div v-if="!tWrong.length" class="empty-tip">暂无错题</div>
+            <div v-else ref="dashWrongEl" class="t-chart"></div>
           </div>
 
           <div class="dash-card trend-card">
             <h3 class="dash-title">班级平均分趋势</h3>
-            <div class="trend-bars">
-              <div v-for="t in tTrends" :key="t.date" class="trend-col">
-                <div class="trend-bar" :style="{ height: Math.max(4, t.avg_score) + '%' }" :title="t.date + ' 平均 ' + t.avg_score"></div>
-                <div class="trend-date">{{ t.date.slice(5) }}</div>
-              </div>
-            </div>
+            <div v-if="!tTrends.length" class="empty-tip">暂无趋势数据</div>
+            <div v-else ref="dashTrendEl" class="t-chart"></div>
           </div>
         </div>
       </template>
@@ -375,28 +495,25 @@ onMounted(() => { loadAnalytics() })
             <div class="dash-card">
               <h3 class="dash-title">历次自测成绩</h3>
               <div v-if="!detail.attempts.length" class="empty-tip">暂无自测记录</div>
-              <table v-else class="t-table">
-                <thead><tr><th>时间</th><th>得分</th><th>正确/总</th></tr></thead>
-                <tbody>
-                  <tr v-for="a in detail.attempts" :key="a.attempt_id">
-                    <td>{{ a.create_time }}</td>
-                    <td :class="a.score >= 60 ? 'c-pass' : 'c-fail'">{{ a.score }}</td>
-                    <td>{{ a.correct }}/{{ a.total_q }}</td>
-                  </tr>
-                </tbody>
-              </table>
+              <template v-else>
+                <div ref="stuTrendEl" class="t-chart t-chart-sm"></div>
+                <table class="t-table">
+                  <thead><tr><th>时间</th><th>得分</th><th>正确/总</th></tr></thead>
+                  <tbody>
+                    <tr v-for="a in detail.attempts" :key="a.attempt_id">
+                      <td>{{ a.create_time }}</td>
+                      <td :class="a.score >= 60 ? 'c-pass' : 'c-fail'">{{ a.score }}</td>
+                      <td>{{ a.correct }}/{{ a.total_q }}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </template>
             </div>
 
             <div class="dash-card">
               <h3 class="dash-title">知识点掌握度</h3>
               <div v-if="!detail.knowledge.length" class="empty-tip">暂无数据</div>
-              <div v-for="k in detail.knowledge" :key="k.knowledge_point" class="kp-row">
-                <div class="kp-name">{{ k.knowledge_point }}</div>
-                <div class="kp-bar-wrap">
-                  <div class="kp-bar" :style="{ width: k.accuracy + '%', background: kpColor(k.accuracy) }"></div>
-                </div>
-                <div class="kp-val">{{ k.accuracy }}%</div>
-              </div>
+              <div v-else ref="stuRadarEl" class="t-chart"></div>
             </div>
           </div>
 

@@ -211,7 +211,7 @@ const rendered = computed(() => md.render(wrapPlainMath(normalizeFormulas(props.
 }
 
 .md-body code {
-  background: #eef0f4;
+  background: rgba(255, 255, 255, 0.10);
   border-radius: 4px;
   padding: 0.1em 0.4em;
   font-size: 0.92em;
@@ -219,8 +219,9 @@ const rendered = computed(() => md.render(wrapPlainMath(normalizeFormulas(props.
 }
 
 .md-body pre {
-  background: #282c34;
+  background: #0f172a;
   color: #e6e6e6;
+  border: 1px solid rgba(255, 255, 255, 0.10);
   border-radius: 8px;
   padding: 12px 16px;
   overflow-x: auto;
@@ -234,10 +235,10 @@ const rendered = computed(() => md.render(wrapPlainMath(normalizeFormulas(props.
 }
 
 .md-body blockquote {
-  border-left: 3px solid #cbd5e1;
+  border-left: 3px solid rgba(99, 102, 241, 0.6);
   padding-left: 12px;
   margin: 0.6em 0;
-  color: #64748b;
+  color: #94a3b8;
 }
 
 .md-body table {
@@ -248,13 +249,13 @@ const rendered = computed(() => md.render(wrapPlainMath(normalizeFormulas(props.
 
 .md-body th,
 .md-body td {
-  border: 1px solid #e2e8f0;
+  border: 1px solid rgba(255, 255, 255, 0.14);
   padding: 6px 12px;
   text-align: left;
 }
 
 .md-body th {
-  background: #f1f5f9;
+  background: rgba(255, 255, 255, 0.06);
 }
 
 .md-body .katex-display {
@@ -265,6 +266,6 @@ const rendered = computed(() => md.render(wrapPlainMath(normalizeFormulas(props.
 }
 
 .md-body a {
-  color: #4f46e5;
+  color: #a5b4fc;
 }
 </style>
