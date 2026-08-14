@@ -43,6 +43,8 @@ function isMathChar(ch) { return MATH_CHAR.test(ch) }
 
 function needsMathWrap(tok) {
   if (!tok || tok.length > 24) return false
+  // 填空占位下划线（如 ____）不是数学记号，直接显示避免 KaTeX 报错
+  if (/^_+$/.test(tok)) return false
   return MATH_MARKER.test(tok)
 }
 

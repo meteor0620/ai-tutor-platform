@@ -173,8 +173,47 @@ def create_paper(pc: PaperConfig):
     return {"code": 200, "paper_id": paper_id, "title": title, "question_count": len(picked)}
 
 
+@router.get("/papers")
+def list_papers(subject: str = ""):
+    """试卷列表（教师端组卷管理用），含题数"""
+    conn = get_conn()
+    sql = ("SELECT p.id, p.subject, p.title, p.config, p.create_time, "
+           "COUNT(pq.question_id) q_count FROM papers p "
+           "LEFT JOIN paper_questions pq ON pq.paper_id=p.id WHERE 1=1")
+    params = []
+    if subject:
+        sql += " AND p.subject=?"
+        params.append(subject)
+    rows = conn.execute(sql + " GROUP BY p.id ORDER BY p.create_time DESC, p.id DESC", params).fetchall()
+    items = []
+    for r in rows:
+        d = dict(r)
+        try:
+            d["config"] = json.loads(d.get("config") or "{}")
+        except Exception:
+            d["config"] = {}
+        items.append(d)
+    conn.close()
+    return {"code": 200, "items": items}
+
+
+@router.delete("/papers/{paper_id}")
+def delete_paper(paper_id: int):
+    """删除试卷（级联删题目关联）"""
+    conn = get_conn()
+    row = conn.execute("SELECT id FROM papers WHERE id=?", (paper_id,)).fetchone()
+    if not row:
+        conn.close()
+        raise HTTPException(status_code=404, detail="试卷不存在")
+    conn.execute("DELETE FROM paper_questions WHERE paper_id=?", (paper_id,))
+    conn.execute("DELETE FROM papers WHERE id=?", (paper_id,))
+    conn.commit()
+    conn.close()
+    return {"code": 200}
+
+
 @router.get("/papers/{paper_id}")
-def get_paper(paper_id: int):
+def get_paper(paper_id: int, with_answers: int = 0):
     conn = get_conn()
     paper = conn.execute("SELECT * FROM papers WHERE id=?", (paper_id,)).fetchone()
     if not paper:
@@ -187,10 +226,11 @@ def get_paper(paper_id: int):
         "WHERE pq.paper_id=? ORDER BY pq.position", (paper_id,)
     ).fetchall()
     questions = [row_to_dict(r) for r in qrows]
-    # 作答时不下发答案
-    for q in questions:
-        q["answer"] = ""
-        q["analysis"] = ""
+    # 学生作答时不下发答案；教师预览（with_answers=1）保留答案/解析
+    if not with_answers:
+        for q in questions:
+            q["answer"] = ""
+            q["analysis"] = ""
     conn.close()
     return {"code": 200, "paper": p, "questions": questions}
 

@@ -74,6 +74,15 @@ def init_db():
         mastered INTEGER DEFAULT 0,
         UNIQUE(student_name, question_id)
     );
+
+    CREATE TABLE IF NOT EXISTS reports (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        student_name TEXT DEFAULT '',
+        subject TEXT DEFAULT '',
+        content TEXT DEFAULT '',
+        create_time TEXT DEFAULT (datetime('now', 'localtime')),
+        UNIQUE(student_name, subject)
+    );
     """)
     conn.commit()
     conn.close()

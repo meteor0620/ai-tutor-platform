@@ -1276,3 +1276,126 @@ body {
   transition: height .5s ease;
 }
 .trend-date { font-size: 11px; color: #6b7280; }
+
+/* ============ 教师端（t- 前缀） ============ */
+.t-page { max-width: 1180px; margin: 0 auto; padding: 0 18px 40px; }
+
+.teacher-subject-tabs { display: flex; gap: 8px; margin-left: auto; }
+.teacher-subject-tabs button {
+  padding: 7px 14px; border-radius: 999px; border: 1px solid #e5e7eb;
+  background: #fff; color: #4b5563; font-size: 13px; cursor: pointer;
+}
+.teacher-subject-tabs button.active { background: #4f46e5; border-color: #4f46e5; color: #fff; }
+
+.t-tabs { display: flex; gap: 6px; flex-wrap: wrap; margin: 16px 0 20px; }
+.t-tabs button {
+  padding: 8px 16px; border-radius: 10px; border: 1px solid #e5e7eb;
+  background: #fff; color: #4b5563; font-size: 14px; font-weight: 600; cursor: pointer;
+  transition: all .15s ease;
+}
+.t-tabs button.active { background: #4f46e5; border-color: #4f46e5; color: #fff; box-shadow: 0 2px 8px rgba(79,70,229,.25); }
+
+.c-pass { color: #10b981 !important; font-weight: 700; }
+.c-fail { color: #ef4444 !important; font-weight: 700; }
+
+/* --- 学生 --- */
+.stu-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 14px; }
+.stu-card {
+  background: #fff; border-radius: 12px; padding: 16px; box-shadow: 0 1px 4px rgba(0,0,0,.06);
+  cursor: pointer; transition: transform .15s ease, box-shadow .15s ease; border-top: 3px solid #4f46e5;
+}
+.stu-card:hover { transform: translateY(-2px); box-shadow: 0 6px 18px rgba(0,0,0,.1); }
+.stu-name { font-size: 17px; font-weight: 800; color: #111827; margin-bottom: 8px; }
+.stu-meta { display: flex; flex-wrap: wrap; gap: 6px 12px; font-size: 13px; color: #6b7280; margin-bottom: 10px; }
+.stu-link { font-size: 13px; color: #4f46e5; font-weight: 600; }
+.stu-detail-head { display: flex; align-items: center; gap: 14px; margin-bottom: 16px; }
+.report-card { margin-bottom: 16px; }
+.report-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.report-body { font-size: 14px; line-height: 1.8; color: #374151; }
+.report-meta { margin-top: 10px; font-size: 12px; color: #9ca3af; }
+.report-error { color: #ef4444; font-size: 13px; margin: 8px 0; }
+
+/* --- 题库 --- */
+.bank-toolbar { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 14px; margin-bottom: 16px; }
+.bank-stats { display: flex; gap: 10px; flex-wrap: wrap; }
+.stat-card.mini { padding: 10px 14px; }
+.stat-card.mini .stat-num { font-size: 20px; }
+.bank-actions { display: flex; gap: 8px; align-items: center; margin-left: auto; flex-wrap: wrap; }
+.t-filter { width: 150px; }
+.t-select {
+  padding: 8px 10px; border: 1px solid #d1d5db; border-radius: 8px; background: #fff;
+  font-size: 13px; color: #374151; outline: none;
+}
+.t-ai-btn { background: linear-gradient(90deg, #8b5cf6, #6366f1); border-color: transparent; }
+.t-ai-btn:hover { background: linear-gradient(90deg, #7c3aed, #4f46e5); }
+.bank-list { display: flex; flex-direction: column; gap: 12px; }
+.bank-card { position: relative; }
+.bank-options { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0; }
+.bank-opt {
+  font-size: 13px; color: #4b5563; background: #f9fafb; border: 1px solid #e5e7eb;
+  padding: 4px 10px; border-radius: 999px;
+}
+.bank-opt-correct { background: #f0fdf4; border-color: #86efac; color: #15803d; font-weight: 700; }
+.bank-ops { display: flex; gap: 8px; margin-top: 10px; }
+.t-del-btn { color: #ef4444; border-color: #fecaca; }
+.t-del-btn:hover { background: #fef2f2; }
+.bank-page { display: flex; align-items: center; gap: 10px; justify-content: center; font-size: 13px; color: #6b7280; margin-top: 14px; }
+.t-badge {
+  margin-left: 6px; font-size: 11px; padding: 1px 8px; border-radius: 999px;
+  background: #eef2ff; color: #4f46e5; font-weight: 600;
+}
+
+/* --- 组卷 --- */
+.paper-create { margin-bottom: 16px; }
+.paper-form { display: flex; flex-direction: column; gap: 12px; }
+.t-label { font-size: 13px; color: #374151; font-weight: 600; }
+.paper-counts { display: flex; flex-wrap: wrap; gap: 12px; }
+.paper-count { display: flex; align-items: center; gap: 6px; font-size: 13px; color: #4b5563; }
+.t-num {
+  width: 60px; padding: 6px 8px; border: 1px solid #d1d5db; border-radius: 8px; font-size: 13px;
+}
+.paper-list { display: flex; flex-direction: column; gap: 10px; }
+.paper-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 12px 14px; background: #f9fafb; border-radius: 10px; border: 1px solid #f3f4f6;
+}
+.paper-title { font-size: 14px; font-weight: 600; color: #111827; }
+.paper-sub { font-size: 12px; color: #9ca3af; margin-top: 2px; }
+.paper-ops { display: flex; gap: 8px; }
+
+/* --- 教师端表格 --- */
+.t-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.t-table th, .t-table td { text-align: left; padding: 8px 10px; border-bottom: 1px solid #f3f4f6; }
+.t-table th { color: #6b7280; font-weight: 600; background: #fafbfc; }
+.t-table tr:hover td { background: #fafbfc; }
+
+.kb-inline { display: flex; justify-content: flex-end; margin-bottom: 14px; }
+
+/* --- 教师端模态框 --- */
+.t-modal-overlay {
+  position: fixed; inset: 0; background: rgba(17, 24, 39, .55);
+  display: flex; align-items: flex-start; justify-content: center; z-index: 1000;
+  overflow-y: auto; padding: 40px 16px;
+}
+.t-modal {
+  background: #fff; border-radius: 14px; width: 100%; max-width: 560px;
+  padding: 22px 24px; box-shadow: 0 20px 50px rgba(0,0,0,.25);
+  animation: t-pop .18s ease;
+}
+.t-modal-wide { max-width: 860px; }
+@keyframes t-pop {
+  from { opacity: 0; transform: translateY(10px) scale(.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+.preview-body { max-height: 68vh; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; }
+
+/* --- 教师端表单弹窗 --- */
+.q-form { display: flex; flex-direction: column; gap: 10px; }
+.q-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.q-row .t-label { margin: 0; }
+.q-form .t-label { margin-bottom: -4px; }
+.t-textarea {
+  width: 100%; padding: 9px 11px; border: 1px solid #d1d5db; border-radius: 8px;
+  font-size: 13px; font-family: inherit; line-height: 1.6; resize: vertical; outline: none;
+}
+.t-textarea:focus, .chat-input:focus { border-color: #4f46e5; box-shadow: 0 0 0 2px rgba(79,70,229,.12); }

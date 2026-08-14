@@ -1,6 +1,7 @@
 <script setup>
 import { ref, onMounted, nextTick } from 'vue'
 import MarkdownRender from './components/MarkdownRender.vue'
+import Teacher from './components/Teacher.vue'
 
 const subjects = [
   {
@@ -371,53 +372,6 @@ async function loadWrongBook() {
   } catch (e) {}
 }
 
-// ============ 学情看板(教师端) ============
-const teacherSubject = ref('math')
-const tOverview = ref(null)
-const tKnowledge = ref([])
-const tTrends = ref([])
-const tWrong = ref([])
-const tLoading = ref(false)
-
-async function openTeacher() {
-  view.value = 'teacher'
-  loadAnalytics()
-}
-
-async function loadAnalytics() {
-  tLoading.value = true
-  try {
-    const base = `/api/analytics`
-    const s = teacherSubject.value
-    const [ov, kn, tr, wr] = await Promise.all([
-      fetch(`${base}/overview?subject=${s}`).then(r => r.json()),
-      fetch(`${base}/knowledge?subject=${s}`).then(r => r.json()),
-      fetch(`${base}/trends?subject=${s}`).then(r => r.json()),
-      fetch(`${base}/wrong?subject=${s}`).then(r => r.json()),
-    ])
-    tOverview.value = ov
-    tKnowledge.value = kn.items || []
-    tTrends.value = tr.items || []
-    tWrong.value = wr.items || []
-  } catch (e) {
-    tOverview.value = null
-  }
-  tLoading.value = false
-}
-
-function switchTeacherSubject(id) {
-  teacherSubject.value = id
-  loadAnalytics()
-}
-
-function kpColor(acc) {
-  return acc >= 80 ? '#10b981' : acc >= 60 ? '#f59e0b' : '#ef4444'
-}
-
-function maxWrong() {
-  return Math.max(1, ...tWrong.value.map(w => w.count))
-}
-
 onMounted(() => {
   loadWrongBook()
 })
@@ -455,67 +409,11 @@ onMounted(() => {
           </div>
         </div>
         <div class="add-tip">新增科目只需在配置中添加知识库与应用即可扩展</div>
-        <button class="teacher-entry-btn" @click="openTeacher">📊 教师端 · 学情分析看板</button>
+        <button class="teacher-entry-btn" @click="view = 'teacher'">📊 教师端 · 智能教学管理</button>
       </div>
 
-      <!-- ======== 学情看板(教师端) ======== -->
-      <div v-else-if="view === 'teacher'" class="teacher-page">
-        <div class="page-head">
-          <button class="back-btn" @click="goHome">← 返回</button>
-          <h2 class="page-title">学情分析看板</h2>
-          <div class="teacher-tabs">
-            <button :class="{ active: teacherSubject === 'math' }" @click="switchTeacherSubject('math')">高等数学</button>
-            <button :class="{ active: teacherSubject === 'english' }" @click="switchTeacherSubject('english')">大学英语</button>
-          </div>
-        </div>
-
-        <div v-if="tLoading" class="empty-tip">加载中…</div>
-        <div v-else-if="!tOverview || !tOverview.tests" class="empty-tip">该科目暂无测试数据，让学生先自测一下吧</div>
-        <template v-else>
-          <div class="stat-grid">
-            <div class="stat-card"><div class="stat-num">{{ tOverview.tests }}</div><div class="stat-label">测试次数</div></div>
-            <div class="stat-card"><div class="stat-num">{{ tOverview.students }}</div><div class="stat-label">学生数</div></div>
-            <div class="stat-card"><div class="stat-num">{{ tOverview.avg }}</div><div class="stat-label">平均分</div></div>
-            <div class="stat-card"><div class="stat-num">{{ tOverview.pass_rate }}%</div><div class="stat-label">及格率</div></div>
-            <div class="stat-card"><div class="stat-num">{{ tOverview.accuracy }}%</div><div class="stat-label">总正确率</div></div>
-            <div class="stat-card"><div class="stat-num">{{ tOverview.wrong_count }}</div><div class="stat-label">错题数</div></div>
-          </div>
-
-          <div class="dash-grid">
-            <div class="dash-card">
-              <h3 class="dash-title">知识点掌握度</h3>
-              <div v-for="k in tKnowledge" :key="k.knowledge_point" class="kp-row">
-                <div class="kp-name">{{ k.knowledge_point }}</div>
-                <div class="kp-bar-wrap">
-                  <div class="kp-bar" :style="{ width: k.accuracy + '%', background: kpColor(k.accuracy) }"></div>
-                </div>
-                <div class="kp-val">{{ k.accuracy }}%</div>
-              </div>
-            </div>
-
-            <div class="dash-card">
-              <h3 class="dash-title">错题知识点分布</h3>
-              <div v-for="w in tWrong" :key="w.knowledge_point" class="kp-row">
-                <div class="kp-name">{{ w.knowledge_point }}</div>
-                <div class="kp-bar-wrap">
-                  <div class="kp-bar wrong-bar2" :style="{ width: (w.count / maxWrong() * 100) + '%' }"></div>
-                </div>
-                <div class="kp-val">{{ w.count }}</div>
-              </div>
-            </div>
-
-            <div class="dash-card trend-card">
-              <h3 class="dash-title">班级平均分趋势</h3>
-              <div class="trend-bars">
-                <div v-for="t in tTrends" :key="t.date" class="trend-col">
-                  <div class="trend-bar" :style="{ height: Math.max(4, t.avg_score) + '%' }" :title="t.date + ' 平均 ' + t.avg_score"></div>
-                  <div class="trend-date">{{ t.date.slice(5) }}</div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </template>
-      </div>
+      <!-- ======== 教师端（独立组件） ======== -->
+      <Teacher v-else-if="view === 'teacher'" @back="goHome" />
 
       <!-- ======== 错题本 ======== -->
       <div v-else-if="view === 'wrong'" class="wrong-page">

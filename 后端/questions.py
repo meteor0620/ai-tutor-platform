@@ -79,6 +79,25 @@ def create_question(q: QuestionIn):
     return {"code": 200, "data": {"id": qid}}
 
 
+@router.put("/{qid}")
+def update_question(qid: int, q: QuestionIn):
+    """更新题目（教师端题库管理·编辑）"""
+    conn = get_conn()
+    row = conn.execute("SELECT id FROM questions WHERE id=?", (qid,)).fetchone()
+    if not row:
+        conn.close()
+        raise HTTPException(status_code=404, detail="题目不存在")
+    conn.execute(
+        "UPDATE questions SET subject=?, knowledge_point=?, qtype=?, difficulty=?, stem=?, options=?, "
+        "answer=?, analysis=? WHERE id=?",
+        (q.subject, q.knowledge_point, q.qtype, q.difficulty, q.stem,
+         json.dumps(q.options, ensure_ascii=False), q.answer, q.analysis, qid),
+    )
+    conn.commit()
+    conn.close()
+    return {"code": 200, "data": {"id": qid}}
+
+
 @router.delete("/{qid}")
 def delete_question(qid: int):
     conn = get_conn()
@@ -86,6 +105,27 @@ def delete_question(qid: int):
     conn.commit()
     conn.close()
     return {"code": 200}
+
+
+@router.get("/stats")
+def question_stats(subject: str = ""):
+    """题库数量分布：{科目: {题型: 数量, 'total': 总数}}（教师端题库页统计卡）"""
+    conn = get_conn()
+    sql = "SELECT subject, qtype, count(*) c FROM questions WHERE 1=1"
+    params = []
+    if subject:
+        sql += " AND subject=?"
+        params.append(subject)
+    sql += " GROUP BY subject, qtype"
+    rows = conn.execute(sql, params).fetchall()
+    conn.close()
+    from collections import defaultdict
+    stats = defaultdict(lambda: {"total": 0})
+    for r in rows:
+        s = stats[r["subject"]]
+        s[r["qtype"]] = r["c"]
+        s["total"] += r["c"]
+    return {"code": 200, "items": dict(stats)}
 
 
 def call_deepseek(prompt: str, temperature: float = 0.7) -> str:
