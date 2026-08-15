@@ -5,6 +5,7 @@ import { themeOverrides } from './theme'
 import { message } from './naive'
 import MarkdownRender from './components/MarkdownRender.vue'
 import Teacher from './components/Teacher.vue'
+import Mascot from './components/Mascot.vue'
 
 const subjects = [
   {
@@ -804,5 +805,6 @@ onMounted(() => {
 
     <footer class="footer">AI 教辅智学平台 · 智能教辅双端平台</footer>
   </div>
+  <Mascot />
   </n-config-provider>
 </template>
