@@ -426,6 +426,51 @@ async function loadWrongBook() {
   } catch (e) {}
 }
 
+// 错题强化闭环：基于未掌握错题的知识点重新组卷 → 作答 → 判卷后做对自动移出错题本
+const reviewLoading = ref(false)
+async function startReview() {
+  if (reviewLoading.value) return
+  const unmastered = wrongBook.value.filter(w => !w.mastered)
+  if (!unmastered.length) {
+    message.error('当前没有待巩固的错题')
+    return
+  }
+  const subj = unmastered[0].subject || 'math'
+  const subjObj = subjects.find(s => s.id === subj) || subjects[0]
+  reviewLoading.value = true
+  try {
+    const res = await fetch('/api/papers/review', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ student_name: studentName.value, subject: subj }),
+    })
+    const data = await res.json()
+    if (data.code !== 200) {
+      message.error('重练组卷失败：' + (data.detail || '暂无薄弱点'))
+      return
+    }
+    quizSubject.value = subjObj
+    quizPaperId.value = data.paper_id
+    quizMode.value = 'doing'
+    quizQuestions.value = []
+    quizAnswers.value = {}
+    quizResult.value = null
+    view.value = 'quiz'
+    quizLoading.value = true
+    try {
+      const paperRes = await fetch(`/api/papers/${data.paper_id}`)
+      const paperData = await paperRes.json()
+      quizQuestions.value = paperData.questions
+    } finally {
+      quizLoading.value = false
+    }
+  } catch (e) {
+    message.error('错题重练失败：' + e.message)
+  } finally {
+    reviewLoading.value = false
+  }
+}
+
 onMounted(() => {
   loadWrongBook()
 })
@@ -475,6 +520,11 @@ onMounted(() => {
         <div class="page-head">
           <n-button quaternary @click="goHome">← 返回</n-button>
           <h2 class="page-title">我的错题本</h2>
+          <div v-if="wrongBook.length" class="review-bar">
+            <n-button type="primary" :loading="reviewLoading" @click="startReview">
+              📖 错题重练（{{ wrongBook.filter(w => !w.mastered).length }} 待巩固）
+            </n-button>
+          </div>
         </div>
         <div v-if="!wrongBook.length" class="empty-tip">暂无错题，去自测一下吧！</div>
         <div v-else class="wrong-list">
@@ -733,6 +783,7 @@ onMounted(() => {
                 <div class="quiz-stem"><MarkdownRender :content="q.stem" /></div>
                 <div class="result-detail">
                   <div class="result-line">你的答案：{{ quizResult.results[q.id]?.student_answer || '（未作答）' }}</div>
+                  <div v-if="quizResult.results[q.id]?.needs_review" class="result-line needs-review-line">⚠ AI 判分失败，请老师复核</div>
                   <div v-if="!quizResult.results[q.id]?.correct" class="result-line">正确答案：<span class="correct">{{ quizResult.results[q.id]?.std_answer }}</span></div>
                   <div v-if="quizResult.results[q.id]?.analysis" class="result-line">
                     <strong>解析：</strong><MarkdownRender :content="quizResult.results[q.id]?.analysis" />

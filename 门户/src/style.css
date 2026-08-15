@@ -1642,3 +1642,7 @@ body::before {
 .q-form .n-input, .q-form .n-select, .q-form .n-input-number { margin-bottom: 12px; }
 /* 表格在玻璃卡内透明底色（themeOverrides 已含，兜底） */
 .n-data-table { --n-td-color: transparent; }
+/* AI 判分失败提示（错题重练/简答题兜底） */
+.needs-review-line { color: #fbbf24; font-weight: 600; }
+/* 错题本页「错题重练」按钮靠右 */
+.wrong-page .page-head .review-bar { margin-left: auto; }
