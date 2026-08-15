@@ -1,8 +1,8 @@
 <script setup>
-import { ref, onMounted, onBeforeUnmount, nextTick, watch } from 'vue'
-import { Message } from '@arco-design/web-vue'
+import { ref, onMounted, onBeforeUnmount, nextTick, watch, h } from 'vue'
 import * as echarts from 'echarts'
 import MarkdownRender from './MarkdownRender.vue'
+import { message, dialog } from '../naive'
 
 const emit = defineEmits(['back'])
 
@@ -12,6 +12,14 @@ const SUBJECTS = [
 ]
 const typeLabels = { single: '单选题', multiple: '多选题', judge: '判断题', blank: '填空题', short: '简答题' }
 const QTYPE_KEYS = ['single', 'multiple', 'judge', 'blank', 'short']
+// n-select 选项：题型（全部 + 各类）与难度
+const qtypeOptions = [{ label: '全部题型', value: '' }, ...QTYPE_KEYS.map(t => ({ label: typeLabels[t], value: t }))]
+const subjectOptions = SUBJECTS.map(s => ({ label: s.name, value: s.id }))
+const difficultyOptions = [
+  { label: '简单', value: 'easy' },
+  { label: '中等', value: 'medium' },
+  { label: '困难', value: 'hard' },
+]
 const TABS = [
   { k: 'dashboard', label: '📊 学情看板' },
   { k: 'students', label: '👨‍🎓 学生' },
@@ -209,6 +217,13 @@ const detail = ref(null)
 const detailLoading = ref(false)
 const reportLoading = ref(false)
 
+// n-data-table 列定义：历次自测成绩（得分着色保留）
+const attemptsColumns = [
+  { title: '时间', key: 'create_time' },
+  { title: '得分', key: 'score', render: r => h('span', { class: r.score >= 60 ? 'c-pass' : 'c-fail' }, r.score) },
+  { title: '正确/总', key: 'correct', render: r => `${r.correct}/${r.total_q}` },
+]
+
 async function loadStudents() {
   loading.value = true
   try {
@@ -291,7 +306,7 @@ function openEdit(q) {
 function closeBankModal() { bankModal.value = null }
 async function saveQuestion() {
   const m = bankModal.value, q = m.q
-  if (!q.stem.trim() || !q.answer.trim()) { Message.error('题干和答案必填'); return }
+  if (!q.stem.trim() || !q.answer.trim()) { message.error('题干和答案必填'); return }
   bankSaving.value = true
   try {
     const body = {
@@ -309,12 +324,19 @@ async function saveQuestion() {
     }
     bankModal.value = null
     loadBank()
-  } catch (e) { Message.error('保存失败：' + e.message) }
+  } catch (e) { message.error('保存失败：' + e.message) }
   bankSaving.value = false
 }
 async function deleteQuestion(q) {
-  if (!confirm(`确定删除第 ${q.id} 题（${(q.stem || '').slice(0, 20)}…）吗？`)) return
-  try { await fetch(`/api/questions/${q.id}`, { method: 'DELETE' }); loadBank() } catch (e) {}
+  dialog.warning({
+    title: '删除题目',
+    content: `确定删除第 ${q.id} 题（${(q.stem || '').slice(0, 20)}…）吗？`,
+    positiveText: '删除',
+    negativeText: '取消',
+    onPositiveClick: async () => {
+      try { await fetch(`/api/questions/${q.id}`, { method: 'DELETE' }); loadBank() } catch (e) {}
+    },
+  })
 }
 function openGen() {
   genModal.value = { subject: subject.value, knowledge_point: '', qtype: 'single', count: 5 }
@@ -322,16 +344,16 @@ function openGen() {
 function closeGenModal() { genModal.value = null }
 async function runGen() {
   const g = genModal.value
-  if (!g.knowledge_point.trim()) { Message.error('请填写知识点'); return }
+  if (!g.knowledge_point.trim()) { message.error('请填写知识点'); return }
   try {
     const res = await fetch('/api/questions/generate', {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(g),
     })
     const d = await res.json()
-    Message.success(`已生成 ${d.created || 0} 道题`)
+    message.success(`已生成 ${d.created || 0} 道题`)
     genModal.value = null
     loadBank()
-  } catch (e) { Message.error('生成失败：' + e.message) }
+  } catch (e) { message.error('生成失败：' + e.message) }
 }
 
 // ============ 组卷 ============
@@ -352,27 +374,34 @@ async function createPaper() {
   const f = paperForm.value
   const counts = {}
   for (const k of QTYPE_KEYS) if (f[k] > 0) counts[k] = f[k]
-  if (!Object.keys(counts).length) { Message.error('请至少选择一种题型'); return }
+  if (!Object.keys(counts).length) { message.error('请至少选择一种题型'); return }
   try {
     const res = await fetch('/api/papers', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ subject: subject.value, title: f.title.trim() || `${curSubject().name}教师组卷`, counts, source: 'teacher' }),
     })
     const d = await res.json()
-    if (d.code === 200) { Message.success(`组卷成功（${d.question_count} 题）`); f.title = ''; loadPapers() }
-    else Message.error('组卷失败：' + (d.detail || '题库暂无题目'))
-  } catch (e) { Message.error('组卷失败：' + e.message) }
+    if (d.code === 200) { message.success(`组卷成功（${d.question_count} 题）`); f.title = ''; loadPapers() }
+    else message.error('组卷失败：' + (d.detail || '题库暂无题目'))
+  } catch (e) { message.error('组卷失败：' + e.message) }
 }
 async function previewPaper(p) {
   try {
     const res = await fetch(`/api/papers/${p.id}?with_answers=1`)
     paperPreview.value = await res.json()
-  } catch (e) { Message.error('预览失败') }
+  } catch (e) { message.error('预览失败') }
 }
 function closePreview() { paperPreview.value = null }
 async function deletePaper(p) {
-  if (!confirm(`确定删除试卷《${p.title}》吗？`)) return
-  try { await fetch(`/api/papers/${p.id}`, { method: 'DELETE' }); loadPapers() } catch (e) {}
+  dialog.warning({
+    title: '删除试卷',
+    content: `确定删除试卷《${p.title}》吗？`,
+    positiveText: '删除',
+    negativeText: '取消',
+    onPositiveClick: async () => {
+      try { await fetch(`/api/papers/${p.id}`, { method: 'DELETE' }); loadPapers() } catch (e) {}
+    },
+  })
 }
 
 // ============ 知识库（只读浏览 + 检索） ============
@@ -432,17 +461,17 @@ onMounted(() => { loadAnalytics() })
 <template>
   <div class="t-page">
     <div class="page-head">
-      <a-button type="text" @click="emit('back')">← 返回</a-button>
+      <n-button quaternary @click="emit('back')">← 返回</n-button>
       <h2 class="page-title">教师端 · 智能教学管理</h2>
-      <a-radio-group :model-value="subject" type="button" size="small" @change="switchSubject">
-        <a-radio v-for="s in SUBJECTS" :key="s.id" :value="s.id">{{ s.name }}</a-radio>
-      </a-radio-group>
+      <n-radio-group v-model:value="subject" size="small" @update:value="switchSubject">
+        <n-radio-button v-for="s in SUBJECTS" :key="s.id" :value="s.id">{{ s.name }}</n-radio-button>
+      </n-radio-group>
     </div>
 
     <div class="t-tabs">
-      <a-radio-group :model-value="tab" type="button" @change="switchTab">
-        <a-radio v-for="t in TABS" :key="t.k" :value="t.k">{{ t.label }}</a-radio>
-      </a-radio-group>
+      <n-radio-group v-model:value="tab" @update:value="switchTab">
+        <n-radio-button v-for="t in TABS" :key="t.k" :value="t.k">{{ t.label }}</n-radio-button>
+      </n-radio-group>
     </div>
 
     <!-- ============ 看板 ============ -->
@@ -486,7 +515,7 @@ onMounted(() => { loadAnalytics() })
       <!-- 学生详情 -->
       <div v-if="detail" class="stu-detail">
         <div class="stu-detail-head">
-          <a-button type="text" @click="closeDetail">← 学生列表</a-button>
+          <n-button quaternary @click="closeDetail">← 学生列表</n-button>
           <h3 class="dash-title">{{ detail.student_name }} · 学习详情（{{ curSubject().name }}）</h3>
         </div>
         <div v-if="detailLoading" class="empty-tip">加载中…</div>
@@ -494,7 +523,7 @@ onMounted(() => { loadAnalytics() })
           <div class="dash-card report-card">
             <div class="report-head">
               <h3 class="dash-title">🤖 AI 个性化诊断报告</h3>
-              <a-button type="primary" :loading="reportLoading" @click="genReport(false)">{{ detail.report ? '重新生成' : '生成 AI 诊断报告' }}</a-button>
+              <n-button type="primary" :loading="reportLoading" @click="genReport(false)">{{ detail.report ? '重新生成' : '生成 AI 诊断报告' }}</n-button>
             </div>
             <div v-if="detail.reportError" class="report-error">{{ detail.reportError }}</div>
             <div v-if="reportLoading" class="empty-tip">正在分析学情并生成报告（约 10-20 秒）…</div>
@@ -511,19 +540,7 @@ onMounted(() => { loadAnalytics() })
               <div v-if="!detail.attempts.length" class="empty-tip">暂无自测记录</div>
               <template v-else>
                 <div ref="stuTrendEl" class="t-chart t-chart-sm"></div>
-                <a-table :data="detail.attempts" :pagination="false" size="small" :bordered="false" :scroll="{ y: 220 }">
-                  <template #columns>
-                    <a-table-column title="时间" data-index="create_time" />
-                    <a-table-column title="得分" data-index="score">
-                      <template #cell="{ record }">
-                        <span :class="record.score >= 60 ? 'c-pass' : 'c-fail'">{{ record.score }}</span>
-                      </template>
-                    </a-table-column>
-                    <a-table-column title="正确/总">
-                      <template #cell="{ record }">{{ record.correct }}/{{ record.total_q }}</template>
-                    </a-table-column>
-                  </template>
-                </a-table>
+                <n-data-table :data="detail.attempts" :columns="attemptsColumns" :pagination="false" size="small" :bordered="false" :max-height="220" />
               </template>
             </div>
 
@@ -578,13 +595,10 @@ onMounted(() => { loadAnalytics() })
           </div>
         </div>
         <div class="bank-actions">
-          <a-input v-model="bankFilter.kp" placeholder="按知识点筛选" @press-enter="loadBank(true)" allow-clear style="width:170px" />
-          <a-select v-model="bankFilter.qtype" placeholder="全部题型" style="width:130px" @change="loadBank(true)">
-            <a-option value="">全部题型</a-option>
-            <a-option v-for="t in QTYPE_KEYS" :key="t" :value="t">{{ typeLabels[t] }}</a-option>
-          </a-select>
-          <a-button type="primary" @click="openAdd">＋ 新增题目</a-button>
-          <a-button type="primary" status="success" @click="openGen">✨ AI 批量生成</a-button>
+          <n-input v-model:value="bankFilter.kp" placeholder="按知识点筛选" @keyup.enter="loadBank(true)" clearable style="width:170px" />
+          <n-select v-model:value="bankFilter.qtype" placeholder="全部题型" style="width:130px" :options="qtypeOptions" @update:value="loadBank(true)" />
+          <n-button type="primary" @click="openAdd">＋ 新增题目</n-button>
+          <n-button type="success" @click="openGen">✨ AI 批量生成</n-button>
         </div>
       </div>
 
@@ -605,12 +619,12 @@ onMounted(() => { loadAnalytics() })
             <div v-if="q.analysis" class="wrong-analysis"><strong>解析：</strong><MarkdownRender :content="q.analysis" /></div>
           </div>
           <div class="bank-ops">
-            <a-button size="small" @click="openEdit(q)">编辑</a-button>
-            <a-button size="small" status="danger" @click="deleteQuestion(q)">删除</a-button>
+            <n-button size="small" @click="openEdit(q)">编辑</n-button>
+            <n-button size="small" type="error" @click="deleteQuestion(q)">删除</n-button>
           </div>
         </div>
         <div class="bank-page">
-          <a-pagination :total="bankTotal" :current="bankPage" :page-size="bankSize" show-total @change="p => { bankPage = p; loadBank() }" />
+          <n-pagination :item-count="bankTotal" v-model:page="bankPage" :page-size="bankSize" @update:page="loadBank" />
         </div>
       </div>
     </div>
@@ -621,14 +635,14 @@ onMounted(() => { loadAnalytics() })
         <h3 class="dash-title">新建试卷（{{ curSubject().name }}）</h3>
         <div class="paper-form">
           <label class="t-label">标题</label>
-          <a-input v-model="paperForm.title" placeholder="如：高数期末模拟卷（留空自动命名）" />
+          <n-input v-model:value="paperForm.title" placeholder="如：高数期末模拟卷（留空自动命名）" />
           <div class="paper-counts">
             <label v-for="t in QTYPE_KEYS" :key="t" class="paper-count">
               <span>{{ typeLabels[t] }}</span>
-              <a-input-number v-model="paperForm[t]" :min="0" :max="20" style="width:72px" />
+              <n-input-number v-model:value="paperForm[t]" :min="0" :max="20" style="width:72px" />
             </label>
           </div>
-          <a-button type="primary" @click="createPaper">组卷</a-button>
+          <n-button type="primary" @click="createPaper">组卷</n-button>
         </div>
       </div>
 
@@ -642,8 +656,8 @@ onMounted(() => { loadAnalytics() })
               <div class="paper-sub">{{ p.create_time }} · {{ p.q_count }} 题</div>
             </div>
             <div class="paper-ops">
-              <a-button size="small" type="primary" @click="previewPaper(p)">预览</a-button>
-              <a-button size="small" status="danger" @click="deletePaper(p)">删除</a-button>
+              <n-button size="small" type="primary" @click="previewPaper(p)">预览</n-button>
+              <n-button size="small" type="error" @click="deletePaper(p)">删除</n-button>
             </div>
           </div>
         </div>
@@ -651,8 +665,9 @@ onMounted(() => { loadAnalytics() })
     </div>
 
     <!-- 试卷预览（带答案） -->
-    <a-modal :visible="!!paperPreview" @cancel="closePreview" :footer="false" width="760px"
-      :title="paperPreview ? '📄 ' + (paperPreview.paper?.title || '') + '（教师预览 · 含答案）' : ''">
+    <n-modal :show="!!paperPreview" preset="card" style="width: 760px" :bordered="false"
+      :title="paperPreview ? '📄 ' + (paperPreview.paper?.title || '') + '（教师预览 · 含答案）' : ''"
+      @close="closePreview">
       <div v-if="paperPreview" class="preview-body">
         <div v-for="(q, qi) in paperPreview.questions" :key="q.id" class="wrong-card bank-card">
           <div class="wrong-tag">
@@ -669,14 +684,14 @@ onMounted(() => { loadAnalytics() })
           </div>
         </div>
       </div>
-    </a-modal>
+    </n-modal>
 
     <!-- ============ 知识库 ============ -->
     <div v-if="tab === 'knowledge'" class="kb-area">
       <div class="page-head kb-inline">
         <div class="kb-search-bar inline">
-          <a-input v-model="kbQuery" placeholder="检索知识点…" @press-enter="kbSearch" allow-clear />
-          <a-button type="primary" :disabled="!kbQuery.trim()" @click="kbSearch">检索</a-button>
+          <n-input v-model:value="kbQuery" placeholder="检索知识点…" @keyup.enter="kbSearch" clearable />
+          <n-button type="primary" :disabled="!kbQuery.trim()" @click="kbSearch">检索</n-button>
         </div>
       </div>
       <div v-if="kbResults.length" class="wrong-list">
@@ -686,7 +701,7 @@ onMounted(() => { loadAnalytics() })
           <div class="kb-result-title">{{ r.title }}</div>
           <div class="wrong-stem"><MarkdownRender :content="r.content" /></div>
         </div>
-        <a-button type="text" @click="kbResults = []; kbQuery = ''">← 返回目录</a-button>
+        <n-button quaternary @click="kbResults = []; kbQuery = ''">← 返回目录</n-button>
       </div>
       <div v-else class="kb-book">
         <aside class="kb-sidebar">
@@ -713,60 +728,61 @@ onMounted(() => { loadAnalytics() })
     </div>
 
     <!-- 新增/编辑题目弹窗 -->
-    <a-modal :visible="!!bankModal" @cancel="closeBankModal" @ok="saveQuestion" :confirm-loading="bankSaving" ok-text="保存" cancel-text="取消"
-      :title="bankModal ? (bankModal.mode === 'add' ? '＋ 新增题目' : '✏️ 编辑题目 #' + bankModal.q.id) : ''">
+    <n-modal :show="!!bankModal" preset="card" style="width: 640px" :bordered="false"
+      :title="bankModal ? (bankModal.mode === 'add' ? '＋ 新增题目' : '✏️ 编辑题目 #' + bankModal.q.id) : ''"
+      @close="closeBankModal">
       <div v-if="bankModal" class="q-form">
         <div class="q-row">
           <span class="t-label">科目</span>
-          <a-select v-model="bankModal.q.subject" style="width:110px">
-            <a-option v-for="s in SUBJECTS" :key="s.id" :value="s.id">{{ s.name }}</a-option>
-          </a-select>
+          <n-select v-model:value="bankModal.q.subject" style="width:110px" :options="subjectOptions" />
           <span class="t-label">题型</span>
-          <a-select v-model="bankModal.q.qtype" style="width:110px">
-            <a-option v-for="t in QTYPE_KEYS" :key="t" :value="t">{{ typeLabels[t] }}</a-option>
-          </a-select>
+          <n-select v-model:value="bankModal.q.qtype" style="width:110px" :options="qtypeOptions.filter(o => o.value !== '')" />
           <span class="t-label">难度</span>
-          <a-select v-model="bankModal.q.difficulty" style="width:100px">
-            <a-option value="easy">简单</a-option>
-            <a-option value="medium">中等</a-option>
-            <a-option value="hard">困难</a-option>
-          </a-select>
+          <n-select v-model:value="bankModal.q.difficulty" style="width:100px" :options="difficultyOptions" />
         </div>
         <label class="t-label">知识点</label>
-        <a-input v-model="bankModal.q.knowledge_point" placeholder="如：极限 / 多元函数 / 词汇" />
+        <n-input v-model:value="bankModal.q.knowledge_point" placeholder="如：极限 / 多元函数 / 词汇" />
         <label class="t-label">题干</label>
-        <a-textarea v-model="bankModal.q.stem" :auto-size="{ minRows: 3 }" placeholder="题目内容，支持 LaTeX（如 $\int_0^1 x\,dx$）" />
+        <n-input v-model:value="bankModal.q.stem" type="textarea" :autosize="{ minRows: 3 }" placeholder="题目内容，支持 LaTeX（如 $\int_0^1 x\,dx$）" />
         <template v-if="bankModal.q.qtype === 'single' || bankModal.q.qtype === 'multiple'">
           <label class="t-label">选项（每行一个，如 A. xxx）</label>
-          <a-textarea v-model="qOptionsText" :auto-size="{ minRows: 4 }" placeholder="A. xxx&#10;B. xxx&#10;C. xxx&#10;D. xxx" />
+          <n-input v-model:value="qOptionsText" type="textarea" :autosize="{ minRows: 4 }" placeholder="A. xxx&#10;B. xxx&#10;C. xxx&#10;D. xxx" />
         </template>
         <label class="t-label">答案</label>
-        <a-input v-model="bankModal.q.answer"
+        <n-input v-model:value="bankModal.q.answer"
           :placeholder="bankModal.q.qtype === 'judge' ? '对 或 错' : (bankModal.q.qtype === 'single' ? '如：A' : (bankModal.q.qtype === 'multiple' ? '如：ABD' : '正确答案文本'))" />
         <label class="t-label">解析</label>
-        <a-textarea v-model="bankModal.q.analysis" :auto-size="{ minRows: 3 }" placeholder="（可选）答案解析" />
+        <n-input v-model:value="bankModal.q.analysis" type="textarea" :autosize="{ minRows: 3 }" placeholder="（可选）答案解析" />
       </div>
-    </a-modal>
+      <template #footer>
+        <div style="display:flex;justify-content:flex-end;gap:8px">
+          <n-button @click="closeBankModal">取消</n-button>
+          <n-button type="primary" :loading="bankSaving" @click="saveQuestion">保存</n-button>
+        </div>
+      </template>
+    </n-modal>
 
     <!-- AI 批量生成弹窗 -->
-    <a-modal :visible="!!genModal" @cancel="closeGenModal" @ok="runGen" ok-text="开始生成" cancel-text="取消"
-      title="✨ AI 批量生成题目">
+    <n-modal :show="!!genModal" preset="card" style="width: 480px" :bordered="false"
+      title="✨ AI 批量生成题目" @close="closeGenModal">
       <div v-if="genModal" class="q-form">
         <div class="q-row">
           <span class="t-label">科目</span>
-          <a-select v-model="genModal.subject" style="width:110px">
-            <a-option v-for="s in SUBJECTS" :key="s.id" :value="s.id">{{ s.name }}</a-option>
-          </a-select>
+          <n-select v-model:value="genModal.subject" style="width:110px" :options="subjectOptions" />
           <span class="t-label">题型</span>
-          <a-select v-model="genModal.qtype" style="width:110px">
-            <a-option v-for="t in QTYPE_KEYS" :key="t" :value="t">{{ typeLabels[t] }}</a-option>
-          </a-select>
+          <n-select v-model:value="genModal.qtype" style="width:110px" :options="qtypeOptions.filter(o => o.value !== '')" />
         </div>
         <label class="t-label">知识点</label>
-        <a-input v-model="genModal.knowledge_point" placeholder="如：多元函数极值 / 虚拟语气" />
+        <n-input v-model:value="genModal.knowledge_point" placeholder="如：多元函数极值 / 虚拟语气" />
         <label class="t-label">生成数量（1-10）</label>
-        <a-input-number v-model="genModal.count" :min="1" :max="10" style="width:120px" />
+        <n-input-number v-model:value="genModal.count" :min="1" :max="10" style="width:120px" />
       </div>
-    </a-modal>
+      <template #footer>
+        <div style="display:flex;justify-content:flex-end;gap:8px">
+          <n-button @click="closeGenModal">取消</n-button>
+          <n-button type="primary" @click="runGen">开始生成</n-button>
+        </div>
+      </template>
+    </n-modal>
   </div>
 </template>

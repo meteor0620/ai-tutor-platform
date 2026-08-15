@@ -1,6 +1,8 @@
 <script setup>
 import { ref, onMounted, nextTick } from 'vue'
-import { Message } from '@arco-design/web-vue'
+import { darkTheme } from 'naive-ui'
+import { themeOverrides } from './theme'
+import { message } from './naive'
 import MarkdownRender from './components/MarkdownRender.vue'
 import Teacher from './components/Teacher.vue'
 
@@ -270,7 +272,7 @@ function openQuiz(subject) {
 function beginQuiz() {
   const sel = quizConfig.value.filter(t => t.enabled && t.count > 0)
   if (!sel.length) {
-    Message.error('请至少选择一种题型')
+    message.error('请至少选择一种题型')
     return
   }
   quizMode.value = 'doing'
@@ -338,7 +340,7 @@ async function takeAssignPaper(p) {
     const d = await res.json()
     quizPaperId.value = p.id
     quizQuestions.value = d.questions || []
-  } catch (e) { Message.error('加载试卷失败：' + e.message) }
+  } catch (e) { message.error('加载试卷失败：' + e.message) }
   quizLoading.value = false
 }
 
@@ -365,7 +367,7 @@ async function startQuiz(subject) {
     })
     const data = await res.json()
     if (data.code !== 200) {
-      Message.error('组卷失败：' + (data.detail || '题库暂无题目'))
+      message.error('组卷失败：' + (data.detail || '题库暂无题目'))
       quizMode.value = ''
       return
     }
@@ -374,7 +376,7 @@ async function startQuiz(subject) {
     const paperData = await paperRes.json()
     quizQuestions.value = paperData.questions
   } catch (e) {
-    Message.error('组卷失败：' + e.message)
+    message.error('组卷失败：' + e.message)
     quizMode.value = ''
   } finally {
     quizLoading.value = false
@@ -410,7 +412,7 @@ async function submitQuiz() {
     quizMode.value = 'done'
     loadWrongBook()
   } catch (e) {
-    Message.error('提交失败：' + e.message)
+    message.error('提交失败：' + e.message)
   } finally {
     quizLoading.value = false
   }
@@ -430,6 +432,7 @@ onMounted(() => {
 </script>
 
 <template>
+  <n-config-provider :theme="darkTheme" :theme-overrides="themeOverrides">
   <div class="app">
     <header class="header">
       <div class="header-inner">
@@ -454,14 +457,14 @@ onMounted(() => {
             <div class="subject-en">{{ s.enName }}</div>
             <div class="subject-desc">{{ s.desc }}</div>
             <div class="subject-actions">
-              <a-button type="primary" @click="openChat(s)">💬 AI 答疑</a-button>
-              <a-button type="outline" @click="openQuiz(s)">📝 在线自测</a-button>
-              <a-button type="secondary" @click="openKnowledge(s)">📚 知识库</a-button>
+              <n-button type="primary" @click="openChat(s)">💬 AI 答疑</n-button>
+              <n-button type="default" @click="openQuiz(s)">📝 在线自测</n-button>
+              <n-button type="secondary" @click="openKnowledge(s)">📚 知识库</n-button>
             </div>
           </div>
         </div>
         <div class="add-tip">新增科目只需在配置中添加知识库与应用即可扩展</div>
-        <a-button long size="large" class="teacher-entry-btn" @click="view = 'teacher'">📊 教师端 · 智能教学管理</a-button>
+        <n-button block size="large" class="teacher-entry-btn" @click="view = 'teacher'">📊 教师端 · 智能教学管理</n-button>
       </div>
 
       <!-- ======== 教师端（独立组件） ======== -->
@@ -470,7 +473,7 @@ onMounted(() => {
       <!-- ======== 错题本 ======== -->
       <div v-else-if="view === 'wrong'" class="wrong-page">
         <div class="page-head">
-          <a-button type="text" @click="goHome">← 返回</a-button>
+          <n-button quaternary @click="goHome">← 返回</n-button>
           <h2 class="page-title">我的错题本</h2>
         </div>
         <div v-if="!wrongBook.length" class="empty-tip">暂无错题，去自测一下吧！</div>
@@ -492,11 +495,11 @@ onMounted(() => {
       <!-- ======== 知识库页 ======== -->
       <div v-else-if="view === 'kb'" class="kb-page">
         <div class="page-head">
-          <a-button type="text" @click="goHome">← 返回</a-button>
+          <n-button quaternary @click="goHome">← 返回</n-button>
           <h2 class="page-title">{{ kbSubject.name }} · 知识库</h2>
           <div class="kb-search-bar inline">
-            <a-input v-model="kbSearchQuery" placeholder="检索知识点…" @press-enter="kbSearch" allow-clear />
-            <a-button type="primary" :loading="kbSearching" :disabled="!kbSearchQuery.trim()" @click="kbSearch">检索</a-button>
+            <n-input v-model:value="kbSearchQuery" placeholder="检索知识点…" @keyup.enter="kbSearch" clearable />
+            <n-button type="primary" :loading="kbSearching" :disabled="!kbSearchQuery.trim()" @click="kbSearch">检索</n-button>
           </div>
         </div>
 
@@ -508,7 +511,7 @@ onMounted(() => {
             <div class="kb-result-title">{{ r.title }}</div>
             <div class="wrong-stem"><MarkdownRender :content="r.content" /></div>
           </div>
-          <a-button type="text" @click="kbResults = []; kbSearchQuery = ''">← 返回目录</a-button>
+          <n-button quaternary @click="kbResults = []; kbSearchQuery = ''">← 返回目录</n-button>
         </div>
 
         <!-- 书式浏览 -->
@@ -539,7 +542,7 @@ onMounted(() => {
       <!-- ======== 对话页 ======== -->
       <div v-else-if="view === 'chat'" class="chat-page" :style="{ '--accent': activeSubject.color }">
         <div class="chat-header">
-          <a-button type="text" @click="goHome">←</a-button>
+          <n-button quaternary @click="goHome">←</n-button>
           <div class="chat-title">
             <span class="chat-icon" :style="{ background: activeSubject.color }">{{ activeSubject.icon }}</span>
             <div class="chat-title-text">
@@ -547,7 +550,7 @@ onMounted(() => {
               <span class="chat-status"><i class="dot"></i>在线</span>
             </div>
           </div>
-          <a-button size="small" style="margin-left:auto" @click="newChat">🔄 新对话</a-button>
+          <n-button size="small" style="margin-left:auto" @click="newChat">🔄 新对话</n-button>
           <div class="chat-model">DeepSeek</div>
         </div>
 
@@ -584,15 +587,15 @@ onMounted(() => {
         </div>
 
         <div class="chat-input-area">
-          <a-input v-model="input" size="large" placeholder="输入你的问题，回车发送…" @press-enter="sendMessage" :disabled="chatLoading" />
-          <a-button type="primary" shape="circle" size="large" :loading="chatLoading" :disabled="!input.trim()" @click="sendMessage">➤</a-button>
+          <n-input v-model:value="input" size="large" placeholder="输入你的问题，回车发送…" @keyup.enter="sendMessage" :disabled="chatLoading" />
+          <n-button type="primary" circle size="large" :loading="chatLoading" :disabled="!input.trim()" @click="sendMessage">➤</n-button>
         </div>
       </div>
 
       <!-- ======== 自测页 ======== -->
       <div v-else-if="view === 'quiz'" class="quiz-page">
         <div class="chat-header">
-          <a-button type="text" @click="goHome">← 返回</a-button>
+          <n-button quaternary @click="goHome">← 返回</n-button>
           <div class="chat-title">
             <span class="chat-icon" :style="{ background: quizSubject.color }">{{ quizSubject.icon }}</span>
             <span>{{ quizSubject.name }} · 智能自测</span>
@@ -617,7 +620,7 @@ onMounted(() => {
                   <div class="paper-title">{{ p.title }}</div>
                   <div class="paper-sub">{{ p.create_time }} · {{ p.q_count }} 题</div>
                 </div>
-                <a-button type="primary" @click="takeAssignPaper(p)">开始作答</a-button>
+                <n-button type="primary" @click="takeAssignPaper(p)">开始作答</n-button>
               </div>
             </div>
           </div>
@@ -628,10 +631,10 @@ onMounted(() => {
             <div class="setup-tip">选择本次自测要练习的题型（阅读按"篇"抽题，每篇含 5 道真题）</div>
             <div class="setup-list">
               <div v-for="t in quizConfig" :key="t.kp" class="setup-row" :class="{ on: t.enabled }">
-                <a-checkbox v-model="t.enabled" class="setup-toggle">
+                <n-checkbox v-model:checked="t.enabled" class="setup-toggle">
                   <span class="setup-name">{{ t.label }}</span>
                   <span class="setup-count">{{ t.kp === '阅读' ? '真题 ' + (t.max * 5) + ' 题' : '共 ' + t.max + ' 题' }}</span>
-                </a-checkbox>
+                </n-checkbox>
                 <div v-if="t.enabled" class="setup-stepper">
                   <button class="step-btn" @click="t.count > 1 && t.count--">−</button>
                   <span class="step-val">{{ t.count }} {{ t.unit }}</span>
@@ -640,7 +643,7 @@ onMounted(() => {
               </div>
             </div>
             <div class="quiz-submit-bar">
-              <a-button type="primary" @click="beginQuiz">开始自测</a-button>
+              <n-button type="primary" @click="beginQuiz">开始自测</n-button>
             </div>
           </div>
         </template>
@@ -699,9 +702,9 @@ onMounted(() => {
             <div class="quiz-submit-bar">
               <div class="student-name">
                 <span class="t-label">姓名：</span>
-                <a-input v-model="studentName" placeholder="请输入姓名" style="width:160px" />
+                <n-input v-model:value="studentName" placeholder="请输入姓名" style="width:160px" />
               </div>
-              <a-button type="primary" :loading="quizLoading" @click="submitQuiz">提交并判卷</a-button>
+              <n-button type="primary" :loading="quizLoading" @click="submitQuiz">提交并判卷</n-button>
             </div>
           </div>
         </template>
@@ -739,9 +742,9 @@ onMounted(() => {
               </template>
             </div>
             <div class="quiz-submit-bar">
-              <a-button type="primary" @click="redoQuiz">再来一套</a-button>
-              <a-button v-if="quizSubject.id === 'english'" type="text" @click="openQuiz(quizSubject)">调整题型</a-button>
-              <a-button type="text" @click="loadWrongBook(); view = 'wrong'">查看错题本</a-button>
+              <n-button type="primary" @click="redoQuiz">再来一套</n-button>
+              <n-button v-if="quizSubject.id === 'english'" quaternary @click="openQuiz(quizSubject)">调整题型</n-button>
+              <n-button quaternary @click="loadWrongBook(); view = 'wrong'">查看错题本</n-button>
             </div>
           </div>
         </template>
@@ -750,4 +753,5 @@ onMounted(() => {
 
     <footer class="footer">AI 教辅智学平台 · 智能教辅双端平台</footer>
   </div>
+  </n-config-provider>
 </template>

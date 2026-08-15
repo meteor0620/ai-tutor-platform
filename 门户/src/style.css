@@ -1617,104 +1617,28 @@ body::before {
 .kb-toc-item:hover, .kb-sec-item:hover { background: rgba(255, 255, 255, 0.06); }
 
 /* ============================================================
-   Arco Design 品牌化覆盖层（放文件末尾，确保覆盖 arco.css）
-   选择器与 arco.css 深色块一致(body[arco-theme='dark'])，特异性胜出
+   Naive UI（Soybean 视觉语言）适配层
+   主题色/组件面由 theme.js 的 themeOverrides 接管，这里只做布局接入
    ============================================================ */
-body[arco-theme='dark'] {
-  /* 主色：靛蓝（平台 logo / 强调色） */
-  --primary-1: #eef0ff;
-  --primary-2: #dbe0ff;
-  --primary-3: #b7bffd;
-  --primary-4: #929bf8;
-  --primary-5: #7b83f5;
-  --primary-6: #6366f1;
-  --primary-7: #5259d6;
-  --primary-8: #444cba;
-  --primary-9: #373f9e;
-  --primary-10: #2c3384;
-  --arcoblue-1: var(--primary-1);
-  --arcoblue-2: var(--primary-2);
-  --arcoblue-3: var(--primary-3);
-  --arcoblue-4: var(--primary-4);
-  --arcoblue-5: var(--primary-5);
-  --arcoblue-6: var(--primary-6);
-  --arcoblue-7: var(--primary-7);
-  --arcoblue-8: var(--primary-8);
-  --arcoblue-9: var(--primary-9);
-  --arcoblue-10: var(--primary-10);
-  /* 背景：深蓝紫基调（保留科技感渐变氛围） */
-  --color-bg-1: #0b1120;
-  --color-bg-2: #131a2e;
-  --color-bg-3: #1a2238;
-  --color-bg-4: #222b44;
-  --color-bg-5: #27304b;
-  --color-bg-white: #131a2e;
-  /* 文字：亮色阶 */
-  --color-text-1: #f8fafc;
-  --color-text-2: #e2e8f0;
-  --color-text-3: #94a3b8;
-  --color-text-4: rgba(148, 163, 184, 0.6);
-  /* 边框 / 填充 */
-  --color-border: rgba(255, 255, 255, 0.12);
-  --color-border-2: rgba(255, 255, 255, 0.20);
-  --color-border-3: rgba(255, 255, 255, 0.30);
-  --color-border-4: rgba(255, 255, 255, 0.45);
-  --color-fill-1: rgba(255, 255, 255, 0.05);
-  --color-fill-2: rgba(255, 255, 255, 0.08);
-  --color-fill-3: rgba(255, 255, 255, 0.12);
-  --color-fill-4: rgba(255, 255, 255, 0.18);
-  --color-fill-5: rgba(255, 255, 255, 0.26);
-  /* 状态色 */
-  --color-success-6: #10b981;
-  --color-warning-6: #f59e0b;
-  --color-danger-6: #ef4444;
-  --color-link: #a5b4fc;
-}
-
-/* Arco 组件圆角柔化 + 卡片通透 */
-.arco-btn, .arco-input, .arco-textarea, .arco-select,
-.arco-modal, .arco-card, .arco-table, .arco-pagination,
-.arco-message, .arco-input-number, .arco-tag, .arco-picker {
-  border-radius: 8px;
-}
-.arco-card {
-  border: 1px solid var(--color-border);
-  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.30);
-}
-.arco-card-bordered { border: 1px solid var(--color-border); }
-/* 弹窗/下拉等浮层更实一点，保证可读性 */
-.arco-modal { background: #1a2238; border: 1px solid var(--color-border-2); }
-.arco-select-dropdown, .arco-dropdown, .arco-tooltip-content {
-  background: #27304b !important;
-  border: 1px solid var(--color-border-2);
-}
-/* 表格页脚/斑马纹贴合玻璃卡 */
-.arco-table, .arco-table .arco-table-tr, .arco-table .arco-table-th, .arco-table .arco-table-td {
-  background: transparent;
-}
-.arco-table .arco-table-th { color: var(--color-text-2); }
-.arco-pagination-item { background: rgba(255,255,255,0.05); border-color: var(--color-border); }
-
-/* ---------- Arco 组件接入现有布局的适配 ---------- */
 /* 科目卡 3 个按钮等宽 */
-.subject-actions .arco-btn { flex: 1; }
+.subject-actions .n-button { flex: 1; }
 /* 对话/知识库输入框占满剩余宽度 */
-.chat-input-area .arco-input-wrapper { flex: 1; }
-.kb-search-bar .arco-input-wrapper { flex: 1; }
+.chat-input-area .n-input { flex: 1; }
+.kb-search-bar .n-input { flex: 1; }
 /* 题型选择 checkbox：文字区横排、计数靠右 */
-.setup-toggle.arco-checkbox { flex: 1; }
-.setup-toggle .arco-checkbox-text { display: flex; align-items: center; gap: 10px; flex: 1; }
+.setup-toggle.n-checkbox { flex: 1; }
+.setup-toggle .n-checkbox__label { display: flex; align-items: center; gap: 10px; flex: 1; width: 100%; }
 .setup-toggle .setup-count { margin-left: auto; }
 /* 教师端页头/主 tab：radio-group 布局 */
-.page-head .arco-radio-group { margin-left: auto; }
+.page-head .n-radio-group { margin-left: auto; }
 .t-tabs { display: block; }
-.t-tabs .arco-radio-group { display: flex; flex-wrap: wrap; gap: 6px; }
+.t-tabs .n-radio-group { display: flex; flex-wrap: wrap; gap: 6px; }
 /* 试卷行深色边框 */
 .paper-row { border-color: var(--color-border); }
 /* 弹窗表单控件横向排列收紧 */
-.q-row .arco-select { margin-right: 2px; }
-/* 表格在玻璃卡内去除多余底色（Arco 表格透明处理） */
-.arco-table .arco-table-th, .arco-table .arco-table-td { background: transparent; }
-.arco-table .arco-table-tr:hover .arco-table-td { background: rgba(255,255,255,0.05); }
-/* a-modal 标题跟随 Arco 深色 */
-.arco-modal-title { color: var(--color-text-1); }
+.q-row .n-select { margin-right: 2px; }
+/* 弹窗表单纵向排列 */
+.q-form .t-label { display: block; margin-bottom: 4px; }
+.q-form .n-input, .q-form .n-select, .q-form .n-input-number { margin-bottom: 12px; }
+/* 表格在玻璃卡内透明底色（themeOverrides 已含，兜底） */
+.n-data-table { --n-td-color: transparent; }
