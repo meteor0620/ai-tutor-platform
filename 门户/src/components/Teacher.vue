@@ -1,5 +1,6 @@
 <script setup>
 import { ref, onMounted, onBeforeUnmount, nextTick, watch } from 'vue'
+import { Message } from '@arco-design/web-vue'
 import * as echarts from 'echarts'
 import MarkdownRender from './MarkdownRender.vue'
 
@@ -74,17 +75,30 @@ const dashTrendEl = ref(null)
 const stuRadarEl = ref(null)
 const stuTrendEl = ref(null)
 let chartInstances = []
+let ro = null  // ResizeObserver：容器尺寸变化时兜底重绘（修正初始化量到旧宽度的问题）
 
+function ensureRo() {
+  if (ro) return
+  ro = new ResizeObserver(entries => {
+    entries.forEach(en => {
+      const c = chartInstances.find(ci => ci.getDom() === en.target)
+      if (c) c.resize()
+    })
+  })
+}
 function disposeCharts() {
+  if (ro) { try { ro.disconnect() } catch (e) {} ro = null }
   chartInstances.forEach(c => { try { c.dispose() } catch (e) {} })
   chartInstances = []
 }
 function makeChart(el, option) {
   if (!el) { console.warn('[chart] el 为空'); return null }
   try {
+    ensureRo()
     const c = echarts.init(el, 'dark')
     c.setOption(option)
     chartInstances.push(c)
+    ro.observe(el)
     return c
   } catch (e) {
     console.error('[chart] init 失败:', e.message)
@@ -112,15 +126,16 @@ function renderDashCharts() {
       }],
     })
   }
-  // 错题分布 → 环形
+  // 错题分布 → 环形（缩小半径+标签紧贴，避免顶部扇区标签被裁、底部被图例挤压）
   if (tWrong.value.length && dashWrongEl.value) {
     makeChart(dashWrongEl.value, {
       tooltip: { trigger: 'item', formatter: '{b}: {c} 题 ({d}%)' },
-      legend: { bottom: 0, textStyle: { color: '#94a3b8', fontSize: 11 } },
+      legend: { bottom: 0, textStyle: { color: '#94a3b8', fontSize: 11 }, itemWidth: 12, itemHeight: 10, icon: 'circle' },
       series: [{
-        type: 'pie', radius: ['46%', '70%'], center: ['50%', '44%'],
+        type: 'pie', radius: ['40%', '62%'], center: ['50%', '46%'],
         itemStyle: { borderRadius: 6, borderColor: '#131a2e', borderWidth: 2 },
-        label: { color: '#cbd5e1', fontSize: 11 },
+        label: { formatter: '{b} {d}%', color: '#cbd5e1', fontSize: 11 },
+        labelLine: { length: 10, length2: 6, lineStyle: { color: 'rgba(255,255,255,0.3)' } },
         data: tWrong.value.map(w => ({ name: w.knowledge_point, value: w.count })),
       }],
     })
@@ -186,10 +201,7 @@ function renderStuCharts() {
 
 onBeforeUnmount(() => {
   disposeCharts()
-  window.removeEventListener('resize', resizeCharts)
 })
-function resizeCharts() { chartInstances.forEach(c => c.resize()) }
-window.addEventListener('resize', resizeCharts)
 
 // ============ 学生 ============
 const students = ref([])
@@ -279,7 +291,7 @@ function openEdit(q) {
 function closeBankModal() { bankModal.value = null }
 async function saveQuestion() {
   const m = bankModal.value, q = m.q
-  if (!q.stem.trim() || !q.answer.trim()) { alert('题干和答案必填'); return }
+  if (!q.stem.trim() || !q.answer.trim()) { Message.error('题干和答案必填'); return }
   bankSaving.value = true
   try {
     const body = {
@@ -297,7 +309,7 @@ async function saveQuestion() {
     }
     bankModal.value = null
     loadBank()
-  } catch (e) { alert('保存失败：' + e.message) }
+  } catch (e) { Message.error('保存失败：' + e.message) }
   bankSaving.value = false
 }
 async function deleteQuestion(q) {
@@ -310,16 +322,16 @@ function openGen() {
 function closeGenModal() { genModal.value = null }
 async function runGen() {
   const g = genModal.value
-  if (!g.knowledge_point.trim()) { alert('请填写知识点'); return }
+  if (!g.knowledge_point.trim()) { Message.error('请填写知识点'); return }
   try {
     const res = await fetch('/api/questions/generate', {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(g),
     })
     const d = await res.json()
-    alert(`已生成 ${d.created || 0} 道题`)
+    Message.success(`已生成 ${d.created || 0} 道题`)
     genModal.value = null
     loadBank()
-  } catch (e) { alert('生成失败：' + e.message) }
+  } catch (e) { Message.error('生成失败：' + e.message) }
 }
 
 // ============ 组卷 ============
@@ -340,22 +352,22 @@ async function createPaper() {
   const f = paperForm.value
   const counts = {}
   for (const k of QTYPE_KEYS) if (f[k] > 0) counts[k] = f[k]
-  if (!Object.keys(counts).length) { alert('请至少选择一种题型'); return }
+  if (!Object.keys(counts).length) { Message.error('请至少选择一种题型'); return }
   try {
     const res = await fetch('/api/papers', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ subject: subject.value, title: f.title.trim() || `${curSubject().name}教师组卷`, counts, source: 'teacher' }),
     })
     const d = await res.json()
-    if (d.code === 200) { alert(`组卷成功（${d.question_count} 题）`); f.title = ''; loadPapers() }
-    else alert('组卷失败：' + (d.detail || '题库暂无题目'))
-  } catch (e) { alert('组卷失败：' + e.message) }
+    if (d.code === 200) { Message.success(`组卷成功（${d.question_count} 题）`); f.title = ''; loadPapers() }
+    else Message.error('组卷失败：' + (d.detail || '题库暂无题目'))
+  } catch (e) { Message.error('组卷失败：' + e.message) }
 }
 async function previewPaper(p) {
   try {
     const res = await fetch(`/api/papers/${p.id}?with_answers=1`)
     paperPreview.value = await res.json()
-  } catch (e) { alert('预览失败') }
+  } catch (e) { Message.error('预览失败') }
 }
 function closePreview() { paperPreview.value = null }
 async function deletePaper(p) {
@@ -420,15 +432,17 @@ onMounted(() => { loadAnalytics() })
 <template>
   <div class="t-page">
     <div class="page-head">
-      <button class="back-btn" @click="emit('back')">← 返回</button>
+      <a-button type="text" @click="emit('back')">← 返回</a-button>
       <h2 class="page-title">教师端 · 智能教学管理</h2>
-      <div class="teacher-subject-tabs">
-        <button v-for="s in SUBJECTS" :key="s.id" :class="{ active: subject === s.id }" @click="switchSubject(s.id)">{{ s.name }}</button>
-      </div>
+      <a-radio-group :model-value="subject" type="button" size="small" @change="switchSubject">
+        <a-radio v-for="s in SUBJECTS" :key="s.id" :value="s.id">{{ s.name }}</a-radio>
+      </a-radio-group>
     </div>
 
     <div class="t-tabs">
-      <button v-for="t in TABS" :key="t.k" :class="{ active: tab === t.k }" @click="switchTab(t.k)">{{ t.label }}</button>
+      <a-radio-group :model-value="tab" type="button" @change="switchTab">
+        <a-radio v-for="t in TABS" :key="t.k" :value="t.k">{{ t.label }}</a-radio>
+      </a-radio-group>
     </div>
 
     <!-- ============ 看板 ============ -->
@@ -455,7 +469,7 @@ onMounted(() => { loadAnalytics() })
           <div class="dash-card">
             <h3 class="dash-title">错题知识点分布</h3>
             <div v-if="!tWrong.length" class="empty-tip">暂无错题</div>
-            <div v-else ref="dashWrongEl" class="t-chart"></div>
+            <div v-else ref="dashWrongEl" class="t-chart t-chart-donut"></div>
           </div>
 
           <div class="dash-card trend-card">
@@ -472,7 +486,7 @@ onMounted(() => { loadAnalytics() })
       <!-- 学生详情 -->
       <div v-if="detail" class="stu-detail">
         <div class="stu-detail-head">
-          <button class="back-btn" @click="closeDetail">← 学生列表</button>
+          <a-button type="text" @click="closeDetail">← 学生列表</a-button>
           <h3 class="dash-title">{{ detail.student_name }} · 学习详情（{{ curSubject().name }}）</h3>
         </div>
         <div v-if="detailLoading" class="empty-tip">加载中…</div>
@@ -480,7 +494,7 @@ onMounted(() => { loadAnalytics() })
           <div class="dash-card report-card">
             <div class="report-head">
               <h3 class="dash-title">🤖 AI 个性化诊断报告</h3>
-              <button class="send-btn t-report-btn" :disabled="reportLoading" @click="genReport(false)">{{ reportLoading ? '生成中…' : (detail.report ? '重新生成' : '生成 AI 诊断报告') }}</button>
+              <a-button type="primary" :loading="reportLoading" @click="genReport(false)">{{ detail.report ? '重新生成' : '生成 AI 诊断报告' }}</a-button>
             </div>
             <div v-if="detail.reportError" class="report-error">{{ detail.reportError }}</div>
             <div v-if="reportLoading" class="empty-tip">正在分析学情并生成报告（约 10-20 秒）…</div>
@@ -497,16 +511,19 @@ onMounted(() => { loadAnalytics() })
               <div v-if="!detail.attempts.length" class="empty-tip">暂无自测记录</div>
               <template v-else>
                 <div ref="stuTrendEl" class="t-chart t-chart-sm"></div>
-                <table class="t-table">
-                  <thead><tr><th>时间</th><th>得分</th><th>正确/总</th></tr></thead>
-                  <tbody>
-                    <tr v-for="a in detail.attempts" :key="a.attempt_id">
-                      <td>{{ a.create_time }}</td>
-                      <td :class="a.score >= 60 ? 'c-pass' : 'c-fail'">{{ a.score }}</td>
-                      <td>{{ a.correct }}/{{ a.total_q }}</td>
-                    </tr>
-                  </tbody>
-                </table>
+                <a-table :data="detail.attempts" :pagination="false" size="small" :bordered="false" :scroll="{ y: 220 }">
+                  <template #columns>
+                    <a-table-column title="时间" data-index="create_time" />
+                    <a-table-column title="得分" data-index="score">
+                      <template #cell="{ record }">
+                        <span :class="record.score >= 60 ? 'c-pass' : 'c-fail'">{{ record.score }}</span>
+                      </template>
+                    </a-table-column>
+                    <a-table-column title="正确/总">
+                      <template #cell="{ record }">{{ record.correct }}/{{ record.total_q }}</template>
+                    </a-table-column>
+                  </template>
+                </a-table>
               </template>
             </div>
 
@@ -561,13 +578,13 @@ onMounted(() => { loadAnalytics() })
           </div>
         </div>
         <div class="bank-actions">
-          <input v-model="bankFilter.kp" class="chat-input t-filter" placeholder="按知识点筛选" @keyup.enter="loadBank(true)" />
-          <select v-model="bankFilter.qtype" class="t-select" @change="loadBank(true)">
-            <option value="">全部题型</option>
-            <option v-for="t in QTYPE_KEYS" :key="t" :value="t">{{ typeLabels[t] }}</option>
-          </select>
-          <button class="send-btn" @click="openAdd">＋ 新增题目</button>
-          <button class="send-btn t-ai-btn" @click="openGen">✨ AI 批量生成</button>
+          <a-input v-model="bankFilter.kp" placeholder="按知识点筛选" @press-enter="loadBank(true)" allow-clear style="width:170px" />
+          <a-select v-model="bankFilter.qtype" placeholder="全部题型" style="width:130px" @change="loadBank(true)">
+            <a-option value="">全部题型</a-option>
+            <a-option v-for="t in QTYPE_KEYS" :key="t" :value="t">{{ typeLabels[t] }}</a-option>
+          </a-select>
+          <a-button type="primary" @click="openAdd">＋ 新增题目</a-button>
+          <a-button type="primary" status="success" @click="openGen">✨ AI 批量生成</a-button>
         </div>
       </div>
 
@@ -588,14 +605,12 @@ onMounted(() => { loadAnalytics() })
             <div v-if="q.analysis" class="wrong-analysis"><strong>解析：</strong><MarkdownRender :content="q.analysis" /></div>
           </div>
           <div class="bank-ops">
-            <button class="back-btn" @click="openEdit(q)">编辑</button>
-            <button class="back-btn t-del-btn" @click="deleteQuestion(q)">删除</button>
+            <a-button size="small" @click="openEdit(q)">编辑</a-button>
+            <a-button size="small" status="danger" @click="deleteQuestion(q)">删除</a-button>
           </div>
         </div>
         <div class="bank-page">
-          <span>共 {{ bankTotal }} 题 · 第 {{ bankPage }} 页</span>
-          <button class="back-btn" :disabled="bankPage <= 1" @click="bankPage--; loadBank()">上一页</button>
-          <button class="back-btn" :disabled="bankPage * bankSize >= bankTotal" @click="bankPage++; loadBank()">下一页</button>
+          <a-pagination :total="bankTotal" :current="bankPage" :page-size="bankSize" show-total @change="p => { bankPage = p; loadBank() }" />
         </div>
       </div>
     </div>
@@ -606,14 +621,14 @@ onMounted(() => { loadAnalytics() })
         <h3 class="dash-title">新建试卷（{{ curSubject().name }}）</h3>
         <div class="paper-form">
           <label class="t-label">标题</label>
-          <input v-model="paperForm.title" class="chat-input" placeholder="如：高数期末模拟卷（留空自动命名）" />
+          <a-input v-model="paperForm.title" placeholder="如：高数期末模拟卷（留空自动命名）" />
           <div class="paper-counts">
             <label v-for="t in QTYPE_KEYS" :key="t" class="paper-count">
               <span>{{ typeLabels[t] }}</span>
-              <input v-model.number="paperForm[t]" type="number" min="0" max="20" class="t-num" />
+              <a-input-number v-model="paperForm[t]" :min="0" :max="20" style="width:72px" />
             </label>
           </div>
-          <button class="send-btn" @click="createPaper">组卷</button>
+          <a-button type="primary" @click="createPaper">组卷</a-button>
         </div>
       </div>
 
@@ -627,8 +642,8 @@ onMounted(() => { loadAnalytics() })
               <div class="paper-sub">{{ p.create_time }} · {{ p.q_count }} 题</div>
             </div>
             <div class="paper-ops">
-              <button class="send-btn" @click="previewPaper(p)">预览</button>
-              <button class="back-btn t-del-btn" @click="deletePaper(p)">删除</button>
+              <a-button size="small" type="primary" @click="previewPaper(p)">预览</a-button>
+              <a-button size="small" status="danger" @click="deletePaper(p)">删除</a-button>
             </div>
           </div>
         </div>
@@ -636,37 +651,32 @@ onMounted(() => { loadAnalytics() })
     </div>
 
     <!-- 试卷预览（带答案） -->
-    <div v-if="paperPreview" class="t-modal-overlay" @click.self="closePreview">
-      <div class="t-modal t-modal-wide">
-        <div class="report-head">
-          <h3 class="dash-title">📄 {{ paperPreview.paper?.title }}（教师预览 · 含答案）</h3>
-          <button class="back-btn" @click="closePreview">关闭预览</button>
-        </div>
-        <div class="preview-body">
-          <div v-for="(q, qi) in paperPreview.questions" :key="q.id" class="wrong-card bank-card">
-            <div class="wrong-tag">
-              {{ qi + 1 }} · {{ typeLabels[q.qtype] }} · {{ q.knowledge_point }}
-              <span v-if="q.qtype === 'short'" class="t-badge">AI 判分</span>
-            </div>
-            <div class="wrong-stem"><MarkdownRender :content="q.stem" /></div>
-            <div v-if="(q.options || []).length" class="bank-options">
-              <span v-for="o in q.options" :key="o" class="bank-opt" :class="{ 'bank-opt-correct': o.startsWith(q.answer) }">{{ o }}</span>
-            </div>
-            <div class="wrong-detail">
-              <div class="wrong-answer">标准答案：<span class="correct">{{ q.answer }}</span></div>
-              <div v-if="q.analysis" class="wrong-analysis"><strong>解析：</strong><MarkdownRender :content="q.analysis" /></div>
-            </div>
+    <a-modal :visible="!!paperPreview" @cancel="closePreview" :footer="false" width="760px"
+      :title="paperPreview ? '📄 ' + (paperPreview.paper?.title || '') + '（教师预览 · 含答案）' : ''">
+      <div v-if="paperPreview" class="preview-body">
+        <div v-for="(q, qi) in paperPreview.questions" :key="q.id" class="wrong-card bank-card">
+          <div class="wrong-tag">
+            {{ qi + 1 }} · {{ typeLabels[q.qtype] }} · {{ q.knowledge_point }}
+            <span v-if="q.qtype === 'short'" class="t-badge">AI 判分</span>
+          </div>
+          <div class="wrong-stem"><MarkdownRender :content="q.stem" /></div>
+          <div v-if="(q.options || []).length" class="bank-options">
+            <span v-for="o in q.options" :key="o" class="bank-opt" :class="{ 'bank-opt-correct': o.startsWith(q.answer) }">{{ o }}</span>
+          </div>
+          <div class="wrong-detail">
+            <div class="wrong-answer">标准答案：<span class="correct">{{ q.answer }}</span></div>
+            <div v-if="q.analysis" class="wrong-analysis"><strong>解析：</strong><MarkdownRender :content="q.analysis" /></div>
           </div>
         </div>
       </div>
-    </div>
+    </a-modal>
 
     <!-- ============ 知识库 ============ -->
-    <div v-else class="kb-area">
+    <div v-if="tab === 'knowledge'" class="kb-area">
       <div class="page-head kb-inline">
         <div class="kb-search-bar inline">
-          <input v-model="kbQuery" class="chat-input" placeholder="检索知识点…" @keyup.enter="kbSearch" />
-          <button class="send-btn" :disabled="!kbQuery.trim()" @click="kbSearch">检索</button>
+          <a-input v-model="kbQuery" placeholder="检索知识点…" @press-enter="kbSearch" allow-clear />
+          <a-button type="primary" :disabled="!kbQuery.trim()" @click="kbSearch">检索</a-button>
         </div>
       </div>
       <div v-if="kbResults.length" class="wrong-list">
@@ -676,7 +686,7 @@ onMounted(() => { loadAnalytics() })
           <div class="kb-result-title">{{ r.title }}</div>
           <div class="wrong-stem"><MarkdownRender :content="r.content" /></div>
         </div>
-        <button class="back-btn" @click="kbResults = []; kbQuery = ''">← 返回目录</button>
+        <a-button type="text" @click="kbResults = []; kbQuery = ''">← 返回目录</a-button>
       </div>
       <div v-else class="kb-book">
         <aside class="kb-sidebar">
@@ -686,7 +696,7 @@ onMounted(() => { loadAnalytics() })
           </button>
         </aside>
         <div class="kb-mid">
-          <div class="kb-side-title">{{ kbCurrentDoc ? docDisplayName(kbCurrentDoc.name) : '节' }}（{{ kbSections.length }}）</div>
+          <div class="kb-side-title">{{ kbCurrentDoc ? '节 · ' + docDisplayName(kbCurrentDoc.name) + '（' + kbSections.length + '）' : '节（0）' }}</div>
           <button v-for="(sec, i) in kbSections" :key="sec.id" class="kb-sec-item" :class="{ active: kbCurrentSection && kbCurrentSection.id === sec.id }" @click="selectSection(sec)">
             <span class="kb-sec-num">{{ i + 1 }}</span>
             <span class="kb-sec-name">{{ sec.title }}</span>
@@ -703,76 +713,60 @@ onMounted(() => { loadAnalytics() })
     </div>
 
     <!-- 新增/编辑题目弹窗 -->
-    <div v-if="bankModal" class="t-modal-overlay" @click.self="closeBankModal">
-      <div class="t-modal">
-        <div class="report-head">
-          <h3 class="dash-title">{{ bankModal.mode === 'add' ? '＋ 新增题目' : '✏️ 编辑题目 #' + bankModal.q.id }}</h3>
-          <button class="back-btn" @click="closeBankModal">取消</button>
+    <a-modal :visible="!!bankModal" @cancel="closeBankModal" @ok="saveQuestion" :confirm-loading="bankSaving" ok-text="保存" cancel-text="取消"
+      :title="bankModal ? (bankModal.mode === 'add' ? '＋ 新增题目' : '✏️ 编辑题目 #' + bankModal.q.id) : ''">
+      <div v-if="bankModal" class="q-form">
+        <div class="q-row">
+          <span class="t-label">科目</span>
+          <a-select v-model="bankModal.q.subject" style="width:110px">
+            <a-option v-for="s in SUBJECTS" :key="s.id" :value="s.id">{{ s.name }}</a-option>
+          </a-select>
+          <span class="t-label">题型</span>
+          <a-select v-model="bankModal.q.qtype" style="width:110px">
+            <a-option v-for="t in QTYPE_KEYS" :key="t" :value="t">{{ typeLabels[t] }}</a-option>
+          </a-select>
+          <span class="t-label">难度</span>
+          <a-select v-model="bankModal.q.difficulty" style="width:100px">
+            <a-option value="easy">简单</a-option>
+            <a-option value="medium">中等</a-option>
+            <a-option value="hard">困难</a-option>
+          </a-select>
         </div>
-        <div class="q-form">
-          <div class="q-row">
-            <label class="t-label">科目</label>
-            <select v-model="bankModal.q.subject" class="t-select">
-              <option v-for="s in SUBJECTS" :key="s.id" :value="s.id">{{ s.name }}</option>
-            </select>
-            <label class="t-label">题型</label>
-            <select v-model="bankModal.q.qtype" class="t-select">
-              <option v-for="t in QTYPE_KEYS" :key="t" :value="t">{{ typeLabels[t] }}</option>
-            </select>
-            <label class="t-label">难度</label>
-            <select v-model="bankModal.q.difficulty" class="t-select">
-              <option value="easy">简单</option>
-              <option value="medium">中等</option>
-              <option value="hard">困难</option>
-            </select>
-          </div>
-          <label class="t-label">知识点</label>
-          <input v-model="bankModal.q.knowledge_point" class="chat-input" placeholder="如：极限 / 多元函数 / 词汇" />
-          <label class="t-label">题干</label>
-          <textarea v-model="bankModal.q.stem" class="t-textarea" rows="3" placeholder="题目内容，支持 LaTeX（如 $\int_0^1 x\,dx$）"></textarea>
-          <template v-if="bankModal.q.qtype === 'single' || bankModal.q.qtype === 'multiple'">
-            <label class="t-label">选项（每行一个，如 A. xxx）</label>
-            <textarea v-model="qOptionsText" class="t-textarea" rows="4" placeholder="A. xxx&#10;B. xxx&#10;C. xxx&#10;D. xxx"></textarea>
-          </template>
-          <label class="t-label">答案</label>
-          <input v-model="bankModal.q.answer" class="chat-input"
-            :placeholder="bankModal.q.qtype === 'judge' ? '对 或 错' : (bankModal.q.qtype === 'single' ? '如：A' : (bankModal.q.qtype === 'multiple' ? '如：ABD' : '正确答案文本'))" />
-          <label class="t-label">解析</label>
-          <textarea v-model="bankModal.q.analysis" class="t-textarea" rows="3" placeholder="（可选）答案解析"></textarea>
-          <div class="bank-ops">
-            <button class="send-btn" :disabled="bankSaving" @click="saveQuestion">{{ bankSaving ? '保存中…' : '保存' }}</button>
-          </div>
-        </div>
+        <label class="t-label">知识点</label>
+        <a-input v-model="bankModal.q.knowledge_point" placeholder="如：极限 / 多元函数 / 词汇" />
+        <label class="t-label">题干</label>
+        <a-textarea v-model="bankModal.q.stem" :auto-size="{ minRows: 3 }" placeholder="题目内容，支持 LaTeX（如 $\int_0^1 x\,dx$）" />
+        <template v-if="bankModal.q.qtype === 'single' || bankModal.q.qtype === 'multiple'">
+          <label class="t-label">选项（每行一个，如 A. xxx）</label>
+          <a-textarea v-model="qOptionsText" :auto-size="{ minRows: 4 }" placeholder="A. xxx&#10;B. xxx&#10;C. xxx&#10;D. xxx" />
+        </template>
+        <label class="t-label">答案</label>
+        <a-input v-model="bankModal.q.answer"
+          :placeholder="bankModal.q.qtype === 'judge' ? '对 或 错' : (bankModal.q.qtype === 'single' ? '如：A' : (bankModal.q.qtype === 'multiple' ? '如：ABD' : '正确答案文本'))" />
+        <label class="t-label">解析</label>
+        <a-textarea v-model="bankModal.q.analysis" :auto-size="{ minRows: 3 }" placeholder="（可选）答案解析" />
       </div>
-    </div>
+    </a-modal>
 
     <!-- AI 批量生成弹窗 -->
-    <div v-if="genModal" class="t-modal-overlay" @click.self="closeGenModal">
-      <div class="t-modal">
-        <div class="report-head">
-          <h3 class="dash-title">✨ AI 批量生成题目</h3>
-          <button class="back-btn" @click="closeGenModal">取消</button>
+    <a-modal :visible="!!genModal" @cancel="closeGenModal" @ok="runGen" ok-text="开始生成" cancel-text="取消"
+      title="✨ AI 批量生成题目">
+      <div v-if="genModal" class="q-form">
+        <div class="q-row">
+          <span class="t-label">科目</span>
+          <a-select v-model="genModal.subject" style="width:110px">
+            <a-option v-for="s in SUBJECTS" :key="s.id" :value="s.id">{{ s.name }}</a-option>
+          </a-select>
+          <span class="t-label">题型</span>
+          <a-select v-model="genModal.qtype" style="width:110px">
+            <a-option v-for="t in QTYPE_KEYS" :key="t" :value="t">{{ typeLabels[t] }}</a-option>
+          </a-select>
         </div>
-        <div class="q-form">
-          <div class="q-row">
-            <label class="t-label">科目</label>
-            <select v-model="genModal.subject" class="t-select">
-              <option v-for="s in SUBJECTS" :key="s.id" :value="s.id">{{ s.name }}</option>
-            </select>
-            <label class="t-label">题型</label>
-            <select v-model="genModal.qtype" class="t-select">
-              <option v-for="t in QTYPE_KEYS" :key="t" :value="t">{{ typeLabels[t] }}</option>
-            </select>
-          </div>
-          <label class="t-label">知识点</label>
-          <input v-model="genModal.knowledge_point" class="chat-input" placeholder="如：多元函数极值 / 虚拟语气" />
-          <label class="t-label">生成数量（1-10）</label>
-          <input v-model.number="genModal.count" type="number" min="1" max="10" class="t-num" />
-          <div class="bank-ops">
-            <button class="send-btn t-ai-btn" @click="runGen">开始生成</button>
-          </div>
-        </div>
+        <label class="t-label">知识点</label>
+        <a-input v-model="genModal.knowledge_point" placeholder="如：多元函数极值 / 虚拟语气" />
+        <label class="t-label">生成数量（1-10）</label>
+        <a-input-number v-model="genModal.count" :min="1" :max="10" style="width:120px" />
       </div>
-    </div>
+    </a-modal>
   </div>
 </template>

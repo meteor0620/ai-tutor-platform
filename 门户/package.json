@@ -9,6 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@arco-design/web-vue": "^2.58.0",
     "echarts": "^6.1.0",
     "katex": "^0.18.1",
     "markdown-it": "^15.0.0",
