@@ -9,14 +9,14 @@ from config import get
 
 router = APIRouter(prefix="/api/knowledge", tags=["知识库"])
 
-MAXKB_BASE = get("MAXKB_BASE", "http://localhost:8081")
+MAXKB_BASE = get("MAXKB_BASE", "http://localhost:8080")
 MAXKB_ADMIN = get("MAXKB_ADMIN", "admin")
 MAXKB_PASSWORD = get("MAXKB_PASSWORD", "")  # 从 .env 读取, 勿硬编码
 
 # 科目 -> MaxKB 知识库 ID
 KNOWLEDGE_MAP = {
-    "math": "019fd0cc-24a8-7fe2-a148-b1a44f6bfe4c",
-    "english": "019fd0cc-250f-72e3-b6f1-fab9d66278d6",
+    "math": "01a06c99-7356-7a33-bbde-951f91a48ee6",
+    "english": "01a06c99-73fd-7ef1-aa4b-b4ae09dde458",
 }
 
 _admin_token_cache = {"token": None}

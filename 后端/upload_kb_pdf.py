@@ -12,7 +12,7 @@ MaxKB 知识库批量上传工具（2026-08-08 验证可用）
 
 用法:
   python upload_kb_pdf.py --dir "英语四级" --kb 019fd0cc-250f-72e3-b6f1-fab9d66278d6 \
-      --username admin --password 'xxx' --base http://localhost:8081
+      --username admin --password 'xxx' --base http://localhost:8080
 """
 import argparse
 import io
@@ -93,8 +93,9 @@ def main():
     ap.add_argument("--kb", required=True, help="知识库ID")
     ap.add_argument("--username", default="admin")
     ap.add_argument("--password", required=True)
-    ap.add_argument("--base", default="http://localhost:8081")
+    ap.add_argument("--base", default="http://localhost:8080")
     ap.add_argument("--min-ok-pages", type=int, default=3, help="文本层达标页数阈值(扫描件判定)")
+    ap.add_argument("--exclude", default="", help="文件相对路径命中该正则则跳过(如 '解析|答案速查')")
     args = ap.parse_args()
 
     s = requests.Session()
@@ -103,11 +104,18 @@ def main():
     if not os.path.isdir(args.dir):
         print(f"目录不存在: {args.dir}")
         return
+    import re
+    excl = re.compile(args.exclude) if args.exclude else None
     pdfs = [os.path.join(r_, f) for r_, d, fs in os.walk(args.dir)
             for f in fs if f.lower().endswith(".pdf")]
     print(f"共 {len(pdfs)} 个PDF, 检测文本层中...")
     todo, skipped = [], []
     for p in pdfs:
+        rel = os.path.relpath(p, args.dir)
+        if excl and excl.search(rel.replace("\\", "/")):
+            skipped.append(p)
+            print("  [跳过-排除]", rel)
+            continue
         if has_text_layer(p, args.min_ok_pages):
             todo.append(p)
         else:

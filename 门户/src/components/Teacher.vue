@@ -2,7 +2,9 @@
 import { ref, onMounted, onBeforeUnmount, nextTick, watch, h } from 'vue'
 import * as echarts from 'echarts'
 import MarkdownRender from './MarkdownRender.vue'
+import AppIcon from './AppIcon.vue'
 import { message, dialog } from '../naive'
+import { loadStudentOverrides, saveStudentOverrides } from '../storage'
 
 const emit = defineEmits(['back'])
 
@@ -216,6 +218,69 @@ const students = ref([])
 const detail = ref(null)
 const detailLoading = ref(false)
 const reportLoading = ref(false)
+// ---- 学生名单个人层（本地增删改，将来换服务端按账号存） ----
+const stuOverrides = ref({ added: [], renamed: {}, hidden: [] })
+const newStuName = ref('')
+const stuAdding = ref(false)
+
+async function loadStuOverrides() {
+  stuOverrides.value = await loadStudentOverrides()
+}
+
+async function persistStuOverrides() {
+  await saveStudentOverrides(JSON.parse(JSON.stringify(stuOverrides.value)))
+}
+
+function applyStuOverrides(list) {
+  // 改名 → 隐藏 → 追加本地新增
+  const renamed = list.map(s => {
+    const nn = stuOverrides.value.renamed[s.student_name]
+    return nn ? { ...s, student_name: nn, demoName: s.student_name, localEdited: true } : s
+  }).filter(s => !stuOverrides.value.hidden.includes(s.demoName || s.student_name))
+  const exist = new Set(renamed.map(s => s.student_name))
+  const added = stuOverrides.value.added
+    .filter(a => a.subject === subject.value && !exist.has(a.name))
+    .map(a => ({ student_name: a.name, tests: 0, avg: 0, latest_score: 0, wrong_count: 0, localOnly: true }))
+  return [...added, ...renamed]
+}
+
+async function addStudent() {
+  const name = newStuName.value.trim()
+  if (!name) return
+  if (students.value.some(s => s.student_name === name)) {
+    message.warning('已有同名学生')
+    return
+  }
+  stuOverrides.value.added.push({ name, subject: subject.value })
+  await persistStuOverrides()
+  newStuName.value = ''
+  loadStudents()
+}
+
+async function renameStudent(s) {
+  const nn = prompt('修改学生姓名：', s.student_name)
+  if (!nn || nn.trim() === s.student_name) return
+  const name = nn.trim()
+  if (students.value.some(x => x.student_name === name)) {
+    message.warning('已有同名学生')
+    return
+  }
+  // 本地新增的直接改 added；示例数据走改名映射
+  const addedItem = stuOverrides.value.added.find(a => a.name === s.student_name)
+  if (addedItem) addedItem.name = name
+  else stuOverrides.value.renamed[s.demoName || s.student_name] = name
+  await persistStuOverrides()
+  loadStudents()
+}
+
+async function removeStudent(s) {
+  if (!confirm(`删除学生「${s.student_name}」？\n（本地新增的学生会被移除；示例数据只是从列表隐藏，不影响原始数据）`)) return
+  const idx = stuOverrides.value.added.findIndex(a => a.name === s.student_name)
+  if (idx >= 0) stuOverrides.value.added.splice(idx, 1)
+  else stuOverrides.value.hidden.push(s.demoName || s.student_name)
+  await persistStuOverrides()
+  loadStudents()
+}
 
 // n-data-table 列定义：历次自测成绩（得分着色保留）
 const attemptsColumns = [
@@ -229,7 +294,7 @@ async function loadStudents() {
   try {
     const res = await fetch(`/api/analytics/students?subject=${subject.value}`)
     const d = await res.json()
-    students.value = d.items || []
+    students.value = applyStuOverrides(d.items || [])
   } catch (e) { students.value = [] }
   loading.value = false
 }
@@ -455,7 +520,7 @@ async function kbSearch() {
 watch([tKnowledge, tWrong, tTrends], () => { nextTick(renderDashCharts) })
 watch(detail, () => { nextTick(renderStuCharts) }, { deep: true })
 
-onMounted(() => { loadAnalytics() })
+onMounted(() => { loadStuOverrides(); loadAnalytics() })
 </script>
 
 <template>
@@ -515,7 +580,7 @@ onMounted(() => { loadAnalytics() })
       <!-- 学生详情 -->
       <div v-if="detail" class="stu-detail">
         <div class="stu-detail-head">
-          <n-button quaternary @click="closeDetail">← 学生列表</n-button>
+          <n-button quaternary class="back-btn" @click="closeDetail"><AppIcon name="back" :size="16" /> 学生列表</n-button>
           <h3 class="dash-title">{{ detail.student_name }} · 学习详情（{{ curSubject().name }}）</h3>
         </div>
         <div v-if="detailLoading" class="empty-tip">加载中…</div>
@@ -568,18 +633,34 @@ onMounted(() => { loadAnalytics() })
 
       <!-- 学生列表 -->
       <div v-else>
+        <div class="stu-toolbar">
+          <div class="stu-add">
+            <input v-model="newStuName" class="stu-add-input" placeholder="输入学生姓名" @keyup.enter="addStudent" />
+            <n-button type="primary" size="small" :disabled="!newStuName.trim()" @click="addStudent"><AppIcon name="check" :size="14" /> 添加学生</n-button>
+          </div>
+          <span class="stu-hint">名单保存在本机 · 删除示例学生仅隐藏不删数据</span>
+        </div>
         <div v-if="loading" class="empty-tip">加载中…</div>
-        <div v-else-if="!students.length" class="empty-tip">该科目暂无学生数据，让学生先自测一下吧</div>
+        <div v-else-if="!students.length" class="empty-tip">该科目暂无学生，可在上方添加，或让学生先自测</div>
         <div v-else class="stu-grid">
           <div v-for="s in students" :key="s.student_name" class="stu-card" @click="openStudent(s.student_name)">
-            <div class="stu-name">{{ s.student_name }}</div>
-            <div class="stu-meta">
+            <div class="stu-ops">
+              <button class="op-btn" title="重命名" @click.stop="renameStudent(s)"><AppIcon name="pencil" :size="13" /></button>
+              <button class="op-btn danger" title="删除" @click.stop="removeStudent(s)"><AppIcon name="x" :size="13" /></button>
+            </div>
+            <div class="stu-name">
+              {{ s.student_name }}
+              <span v-if="s.localOnly" class="demo-tag">本地</span>
+              <span v-else-if="s.localEdited" class="demo-tag">已改名</span>
+            </div>
+            <div v-if="s.localOnly" class="stu-meta"><span>本地名单 · 暂无学习数据</span></div>
+            <div v-else class="stu-meta">
               <span>测试 {{ s.tests }} 次</span>
               <span>平均 {{ s.avg }} 分</span>
               <span :class="s.latest_score >= 60 ? 'c-pass' : 'c-fail'">最近 {{ s.latest_score }} 分</span>
               <span class="c-fail">错题 {{ s.wrong_count }}</span>
             </div>
-            <div class="stu-link">查看详情与 AI 诊断 →</div>
+            <div class="stu-link">{{ s.localOnly ? '本地名单学生' : '查看详情与 AI 诊断 →' }}</div>
           </div>
         </div>
       </div>
