@@ -127,7 +127,7 @@ def extract_pdf(pdf: str) -> dict:
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--dir", default="C:/Users/requter/Desktop/新建文件夹 (11)/英语四级")
+    ap.add_argument("--dir", default="E:/AI教辅智学平台/英语四级")
     ap.add_argument("--folders", default="2024年6月,2025年6月,2025年12月")
     args = ap.parse_args()
 

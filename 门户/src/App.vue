@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, nextTick } from 'vue'
+import { ref, computed, onMounted, nextTick } from 'vue'
 import { darkTheme } from 'naive-ui'
 import { themeOverrides } from './theme'
 import { message } from './naive'
@@ -12,33 +12,16 @@ import {
   loadWrongData, saveWrongData,
 } from './storage'
 import { api, isDemo } from './api'
+import { SUBJECTS, getSubject } from './subjects'
 
-const subjects = [
-  {
-    id: 'math',
-    name: '高等数学',
-    enName: 'Calculus',
-    desc: '函数极限 · 导数微分 · 积分 · 多元函数 · 微分方程',
-    accessToken: '0d618bef834e1d83',
-    color: '#4f46e5',
-    icon: '∫',
-  },
-  {
-    id: 'english',
-    name: '大学英语',
-    enName: 'College English',
-    desc: '核心词汇 · 语法 · 阅读理解 · 写作技巧',
-    accessToken: '420ea5d3a186ed7f',
-    color: '#0d9488',
-    icon: 'A',
-  },
-]
+const subjects = SUBJECTS
 
 const typeLabels = { single: '单选题', multiple: '多选题', judge: '判断题', blank: '填空题', short: '简答题' }
 
-// 首页统计条（真实数据）
-const bankStats = ref({ math: 0, english: 0 })
-const kbParas = ref({ math: 0, english: 0 })
+// 首页统计（按科目 id 动态聚合，加科目自动纳入）
+const bankStats = ref({})
+const kbParas = ref({})
+const sumOf = obj => Object.values(obj || {}).reduce((a, b) => a + (b || 0), 0)
 
 // 导航状态: home | chat | quiz | wrong | kb
 const view = ref('home')
@@ -54,6 +37,8 @@ const kbCurrentSection = ref(null)
 const kbSearchQuery = ref('')
 const kbResults = ref([])
 const kbSearching = ref(false)
+const kbLoading = ref(false)
+const kbError = ref('')
 
 function docDisplayName(name) {
   return (name || '').replace(/^微积分(?:笔记)?-\d+-/, '')
@@ -68,11 +53,18 @@ async function openKnowledge(subject) {
   kbCurrentSection.value = null
   kbResults.value = []
   kbSearchQuery.value = ''
+  kbError.value = ''
+  kbLoading.value = true
   try {
     const data = await api.knowledgeDocuments(subject.id)
+    if (data.code && data.code !== 200) throw new Error(data.message || '加载失败')
     kbDocs.value = data.items || []
     if (kbDocs.value.length) openDoc(kbDocs.value[0])
-  } catch (e) {}
+  } catch (e) {
+    kbError.value = '知识库加载失败：' + (e.message || '请确认后端服务已启动')
+  } finally {
+    kbLoading.value = false
+  }
 }
 
 async function openDoc(doc) {
@@ -80,13 +72,17 @@ async function openDoc(doc) {
   kbSections.value = []
   kbCurrentSection.value = null
   kbResults.value = []
+  kbError.value = ''
   try {
     const data = await api.knowledgeSections(kbSubject.value.id, doc.id)
+    if (data.code && data.code !== 200) throw new Error(data.message || '加载失败')
     kbSections.value = data.items || []
     if (kbSections.value.length) {
       kbCurrentSection.value = kbSections.value[0]
     }
-  } catch (e) {}
+  } catch (e) {
+    kbError.value = '章节加载失败：' + (e.message || '请稍后重试')
+  }
 }
 
 function selectSection(sec) {
@@ -97,11 +93,14 @@ async function kbSearch() {
   const q = kbSearchQuery.value.trim()
   if (!q) return
   kbSearching.value = true
+  kbError.value = ''
   try {
     const data = await api.knowledgeSearch(kbSubject.value.id, q, 5)
+    if (data.code && data.code !== 200) throw new Error(data.message || '检索失败')
     kbResults.value = data.items || []
   } catch (e) {
     kbResults.value = []
+    kbError.value = '检索失败：' + (e.message || '请稍后重试')
   } finally {
     kbSearching.value = false
   }
@@ -128,19 +127,7 @@ const quizPaperId = ref(null)
 const studentName = ref(localStorage.getItem('student_name') || '同学')
 const quizCounts = ref({ single: 3, multiple: 0, judge: 2, blank: 1, short: 1 })
 const quizPassages = ref(0)
-// 各科目自测配置: 数学走通用题库(固定), 英语走自主选题型
-const SUBJECT_QUIZ = {
-  math: { counts: { single: 3, multiple: 0, judge: 2, blank: 1, short: 1 }, passages: 0 },
-  english: { counts: { single: 0, multiple: 0, judge: 0, blank: 0, short: 1 }, passages: 2 },
-}
-// 英语题型选择定义(阅读按"篇"抽题, 每篇5道真题; 翻译为真题简答; 词汇/语法/写作为 AI 生成题)
-const ENGLISH_TYPES = [
-  { kp: '阅读', label: '阅读理解', unit: '篇文章', max: 5, count: 1, enabled: true },
-  { kp: '翻译', label: '段落翻译', unit: '道题', max: 9, count: 1, enabled: true },
-  { kp: '词汇', label: '核心词汇', unit: '道题', max: 20, count: 5, enabled: false },
-  { kp: '语法', label: '语法练习', unit: '道题', max: 15, count: 3, enabled: false },
-  { kp: '写作', label: '写作技巧', unit: '道题', max: 10, count: 2, enabled: false },
-]
+// 组卷配置在 subjects.js 各科目的 quiz / quizTypes（单一事实源）
 const quizConfig = ref([])
 const wrongBook = ref([])
 // 老师布置的指定卷
@@ -171,10 +158,6 @@ function goHome() {
 
 // ============ 对话 ============
 const chatBodyRef = ref(null)
-const quickQuestions = {
-  math: ['泰勒展开是什么？', '导数的定义', '洛必达法则', '定积分怎么算'],
-  english: ['解释一下虚拟语气', '定语从句怎么用', '作文常用句型', '高频核心词汇'],
-}
 
 function nowTime() {
   const d = new Date()
@@ -318,7 +301,9 @@ async function sendMessage() {
 }
 
 // ============ 自测 ============
-function openQuiz(subject) {
+const quizGradeMode = ref(false) // AI 判分体验模式：突出判分能力（客观秒判/简答 AI 评分）
+
+function openQuiz(subject, gradeMode = false) {
   view.value = 'quiz'
   quizSubject.value = subject
   quizQuestions.value = []
@@ -326,18 +311,46 @@ function openQuiz(subject) {
   quizResult.value = null
   quizPaperId.value = null
   quizIsAssign.value = false
-  if (subject.id === 'english') {
-    // 英语: 先出题型选择面板, 不立即组卷
+  quizGradeMode.value = gradeMode
+  // 科目配置了 quizTypes → 先进题型选择面板（判分模式默认只勾 gradePreselect）
+  if (subject.quizTypes && subject.quizTypes.length) {
     quizMode.value = 'setup'
-    quizConfig.value = ENGLISH_TYPES.map(t => ({ ...t }))
+    quizConfig.value = subject.quizTypes.filter(t => !t.hidden).map(t => {
+      if (!gradeMode) return { ...t }
+      const on = t.kp === subject.gradePreselect
+      return { ...t, enabled: on, count: on ? Math.min(3, t.max) : t.count }
+    })
     return
   }
-  // 数学: 直接按默认配置组卷
+  // 否则按默认配置直接组卷
   quizMode.value = 'doing'
-  const cfg = SUBJECT_QUIZ[subject.id] || SUBJECT_QUIZ.math
+  const cfg = subject.quiz || { counts: { single: 5 }, passages: 0 }
   quizCounts.value = { ...cfg.counts }
-  quizPassages.value = cfg.passages
+  quizPassages.value = cfg.passages || 0
   startQuiz(subject)
+}
+
+// 主页特性卡入口：AI 判分 → 判分模式自测
+function openGrade(subject) {
+  openQuiz(subject, true)
+}
+
+// ============ 主页特性卡 → 选科目弹窗 ============
+const featurePicker = ref(null) // null | 'chat' | 'quiz' | 'grade'
+const featureMeta = {
+  chat: { title: 'AI 答疑', desc: '选择科目，进入 AI 答疑（支持多会话与历史记录）' },
+  quiz: { title: '智能组卷', desc: '选择科目，按知识点与题型一键成卷' },
+  grade: { title: 'AI 判分', desc: '客观题提交秒判；简答题（如四级翻译）由 AI 智能评分' },
+}
+function openFeature(kind) {
+  featurePicker.value = kind
+}
+function pickFeatureSubject(s) {
+  const kind = featurePicker.value
+  featurePicker.value = null
+  if (kind === 'chat') openChat(s)
+  else if (kind === 'quiz') openQuiz(s)
+  else if (kind === 'grade') openGrade(s)
 }
 
 function beginQuiz() {
@@ -382,12 +395,14 @@ async function openAssignList() {
   assignLoading.value = false
 }
 
-// 切回随机自测: 英语进题型选择, 数学直接组卷
+// 切回随机自测: 有题型面板的科目进 setup, 否则直接组卷
 function toRandomQuiz() {
   quizIsAssign.value = false
-  if (quizSubject.value.id === 'english') {
+  quizGradeMode.value = false
+  const sub = getSubject(quizSubject.value.id)
+  if (sub.quizTypes && sub.quizTypes.length) {
     quizMode.value = 'setup'
-    quizConfig.value = ENGLISH_TYPES.map(t => ({ ...t }))
+    quizConfig.value = sub.quizTypes.filter(t => !t.hidden).map(t => ({ ...t }))
   } else {
     quizMode.value = 'doing'
     quizQuestions.value = []
@@ -562,20 +577,28 @@ async function saveWrongNote(w) {
 
 // 错题强化闭环：基于未掌握错题的知识点重新组卷 → 作答 → 判卷后做对自动移出错题本
 const reviewLoading = ref(false)
-async function startReview() {
+const wrongFilter = ref('all') // all | math | english
+const wrongFiltered = computed(() =>
+  wrongBook.value.filter(w => wrongFilter.value === 'all' || w.subject === wrongFilter.value))
+const unmasteredBySub = computed(() => {
+  const m = {}
+  for (const w of wrongBook.value) if (!w.mastered) m[w.subject] = (m[w.subject] || 0) + 1
+  return m
+})
+async function startReview(subject) {
   if (reviewLoading.value) return
-  const unmastered = wrongBook.value.filter(w => !w.mastered)
+  const unmastered = wrongBook.value.filter(w => !w.mastered && w.subject === subject)
   if (!unmastered.length) {
-    message.error('当前没有待巩固的错题')
+    message.error('该科目当前没有待巩固的错题')
     return
   }
-  const subj = unmastered[0].subject || 'math'
-  const subjObj = subjects.find(s => s.id === subj) || subjects[0]
+  const subjObj = getSubject(subject)
   reviewLoading.value = true
   try {
-    const data = await api.reviewPaper({ student_name: studentName.value, subject: subj })
+    const data = await api.reviewPaper({ student_name: studentName.value, subject: subjObj.id })
     if (data.code !== 200) {
-      message.error('重练组卷失败：' + (data.detail || '暂无薄弱点'))
+      const d = data.detail
+      message.error('重练组卷失败：' + (typeof d === 'string' ? d : '暂无薄弱点'))
       return
     }
     quizSubject.value = subjObj
@@ -593,7 +616,7 @@ async function startReview() {
       quizLoading.value = false
     }
   } catch (e) {
-    message.error('错题重练失败：' + e.message)
+    message.error('错题重练失败：' + (e.message || '请稍后重试'))
   } finally {
     reviewLoading.value = false
   }
@@ -603,16 +626,13 @@ onMounted(async () => {
   loadWrongBook()
   try {
     const data = await api.stats()
-    if (data.items) {
-      bankStats.value = {
-        math: data.items.math?.total || 0,
-        english: data.items.english?.total || 0,
-      }
-    }
+    const st = {}
+    for (const s of SUBJECTS) st[s.id] = data.items?.[s.id]?.total || 0
+    bankStats.value = st
   } catch (e) {}
-  for (const sub of subjects) {
+  for (const s of SUBJECTS) {
     try {
-      kbParas.value[sub.id] = await api.kbParagraphCount(sub.id)
+      kbParas.value[s.id] = await api.kbParagraphCount(s.id)
     } catch (e) {}
   }
 })
@@ -632,67 +652,85 @@ onMounted(async () => {
         </div>
         <div class="nav">
           <button :class="{ active: view === 'home' }" @click="goHome">科目</button>
-          <button v-if="wrongBook.length" :class="{ active: view === 'wrong' }" @click="view = 'wrong'">错题本 ({{ wrongBook.length }})</button>
         </div>
       </div>
     </header>
 
     <main class="main">
-      <!-- ======== 科目选择页（首页） ======== -->
+      <!-- ======== 科目选择页（首页 · 双栏工作台） ======== -->
       <div v-if="view === 'home'" class="subject-page">
-        <!-- Hero -->
-        <section class="hero">
-          <div class="hero-copy">
-            <div class="hero-badge"><AppIcon name="sparkles" :size="13" /> AI 驱动 · RAG 知识库答疑</div>
-            <h2 class="hero-title">会学习的 <span class="grad">AI 助教</span><br />陪你把课程吃透</h2>
-            <p class="hero-sub">智能答疑 · 在线自测 · 错题追踪 —— 基于课程知识库，答有所据</p>
-          </div>
-          <div class="hero-art" aria-hidden="true"></div>
+        <!-- Hero（紧凑居中） -->
+        <section class="hero v3-hero">
+          <div class="hero-badge"><AppIcon name="sparkles" :size="13" /> AI 驱动 · RAG 知识库答疑</div>
+          <h2 class="hero-title">会学习的 <span class="grad">AI 助教</span>，陪你把课程吃透</h2>
+          <p class="hero-sub">智能答疑 · 在线自测 · 错题追踪 —— 基于课程知识库，答有所据</p>
         </section>
 
-        <!-- 数据条 -->
-        <section class="stats-strip">
-          <div class="stat"><span class="stat-num">{{ bankStats.math + bankStats.english }}</span><span class="stat-label">精品题库</span></div>
-          <div class="stat"><span class="stat-num">{{ kbParas.math + kbParas.english }}+</span><span class="stat-label">知识库段落</span></div>
-          <div class="stat"><span class="stat-num">2</span><span class="stat-label">覆盖课程</span></div>
-          <div class="stat"><span class="stat-num">AI</span><span class="stat-label">实时判分</span></div>
-        </section>
-
-        <!-- 科目卡 -->
-        <h3 class="section-label">选择科目，开始学习</h3>
-        <div class="subject-grid">
-          <div v-for="s in subjects" :key="s.id" class="subject-card" :style="{ '--accent': s.color }">
-            <div class="subject-top">
-              <div class="subject-icon">{{ s.icon }}</div>
-              <div class="subject-titles">
-                <div class="subject-name">{{ s.name }}</div>
-                <div class="subject-en">{{ s.enName }}</div>
+        <div class="workbench">
+          <!-- 左栏：科目 + 功能 -->
+          <div class="wb-main">
+            <h3 class="section-label">我的科目</h3>
+            <div class="subject-list">
+              <div v-for="s in subjects" :key="s.id" class="subject-card v3" :style="{ '--accent': s.color, '--accent2': s.color2 || s.color }">
+                <div class="v3-head">
+                  <div class="subject-icon">{{ s.icon }}</div>
+                  <div class="subject-titles">
+                    <div class="subject-name">{{ s.name }} <span class="v3-en">{{ s.enName }}</span></div>
+                    <div class="v3-desc">{{ s.desc }}</div>
+                  </div>
+                  <div class="v3-chips">
+                    <span class="chip-stat"><b>{{ bankStats[s.id] || 0 }}</b>题库</span>
+                    <span class="chip-stat"><b>{{ kbParas[s.id] || 0 }}</b>知识段</span>
+                  </div>
+                </div>
+                <div class="v3-actions">
+                  <button class="v3-act primary" @click="openChat(s)"><AppIcon name="chat" :size="16" /> AI 答疑</button>
+                  <button class="v3-act" @click="openQuiz(s)"><AppIcon name="pencil" :size="16" /> 在线自测</button>
+                  <button class="v3-act" @click="openGrade(s)"><AppIcon name="check" :size="16" /> AI 判分</button>
+                  <button class="v3-act ghost" @click="openKnowledge(s)"><AppIcon name="book" :size="16" /> 知识库</button>
+                </div>
               </div>
-              <div class="subject-count">{{ s.id === 'math' ? bankStats.math : bankStats.english }} 题</div>
             </div>
-            <div class="subject-desc">{{ s.desc }}</div>
-            <div class="subject-actions">
-              <button class="action-btn primary" @click="openChat(s)"><AppIcon name="chat" :size="16" /> AI 答疑</button>
-              <button class="action-btn" @click="openQuiz(s)"><AppIcon name="pencil" :size="16" /> 在线自测</button>
-              <button class="action-btn ghost" @click="openKnowledge(s)"><AppIcon name="book" :size="16" /> 知识库</button>
+
+            <h3 class="section-label">学习功能</h3>
+            <div class="features-grid v3">
+              <div class="feature-card clickable" @click="openFeature('chat')"><AppIcon name="zap" class="feature-ic" /><div class="feature-txt"><b>AI 答疑</b><span>知识库检索增强，答有所据不瞎编</span></div><AppIcon name="arrow_right" class="feature-go" :size="15" /></div>
+              <div class="feature-card clickable" @click="openFeature('quiz')"><AppIcon name="target" class="feature-ic" /><div class="feature-txt"><b>智能组卷</b><span>按知识点与题型抽题，一键成卷</span></div><AppIcon name="arrow_right" class="feature-go" :size="15" /></div>
+              <div class="feature-card clickable" @click="openFeature('grade')"><AppIcon name="check" class="feature-ic" /><div class="feature-txt"><b>AI 判分</b><span>客观题秒判，简答题 AI 智能评分</span></div><AppIcon name="arrow_right" class="feature-go" :size="15" /></div>
+              <div class="feature-card clickable" @click="loadWrongBook(); view = 'wrong'"><AppIcon name="trophy" class="feature-ic" /><div class="feature-txt"><b>错题追踪<em v-if="wrongBook.length" class="feature-badge">{{ wrongBook.length }}</em></b><span>错题自动收录，循环巩固到掌握</span></div><AppIcon name="arrow_right" class="feature-go" :size="15" /></div>
             </div>
           </div>
-        </div>
 
-        <!-- 特性 -->
-        <div class="features-grid">
-          <div class="feature-card"><AppIcon name="zap" class="feature-ic" /><div class="feature-txt"><b>AI 答疑</b><span>知识库检索增强，答有所据不瞎编</span></div></div>
-          <div class="feature-card"><AppIcon name="target" class="feature-ic" /><div class="feature-txt"><b>智能组卷</b><span>按知识点与题型抽题，一键成卷</span></div></div>
-          <div class="feature-card"><AppIcon name="check" class="feature-ic" /><div class="feature-txt"><b>AI 判分</b><span>客观题秒判，简答题 AI 智能评分</span></div></div>
-          <div class="feature-card"><AppIcon name="trophy" class="feature-ic" /><div class="feature-txt"><b>错题追踪</b><span>错题自动收录，循环巩固到掌握</span></div></div>
-        </div>
+          <!-- 右栏：侧栏 -->
+          <aside class="wb-side">
+            <div class="side-card">
+              <h3 class="side-title">平台数据</h3>
+              <div class="side-stats">
+                <div class="stat"><span class="stat-num">{{ sumOf(bankStats) }}</span><span class="stat-label">精品题库</span></div>
+                <div class="stat"><span class="stat-num">{{ sumOf(kbParas) }}+</span><span class="stat-label">知识库段落</span></div>
+                <div class="stat"><span class="stat-num">700+</span><span class="stat-label">核心知识点</span></div>
+                <div class="stat"><span class="stat-num">AI</span><span class="stat-label">实时判分</span></div>
+              </div>
+            </div>
 
-        <!-- 教师端入口（公网演示版隐藏，需本地后端） -->
-        <button v-if="!isDemo" class="teacher-entry" @click="view = 'teacher'">
-          <AppIcon name="chart" class="teacher-ic" :size="22" />
-          <span class="teacher-text"><b>教师端 · 智能教学管理</b><span>题库管理 · 组卷布置 · 学情看板 · AI 诊断报告</span></span>
-          <AppIcon name="arrow_right" class="teacher-arrow" :size="18" />
-        </button>
+            <div class="side-card accent-card" @click="loadWrongBook(); view = 'wrong'">
+              <h3 class="side-title"><AppIcon name="trophy" :size="16" /> 错题追踪</h3>
+              <template v-if="wrongBook.length">
+                <div class="side-big">{{ wrongBook.filter(w => !w.mastered).length }}</div>
+                <p class="side-sub">道待巩固错题 · 点击进入错题本</p>
+              </template>
+              <template v-else>
+                <p class="side-sub alone">暂无错题，先去自测练一套吧<br />做错的题会自动收进错题本 →</p>
+              </template>
+            </div>
+
+            <button v-if="!isDemo" class="side-card teacher-card" @click="view = 'teacher'">
+              <h3 class="side-title"><AppIcon name="chart" :size="16" /> 教师端</h3>
+              <p class="side-sub alone">题库管理 · 组卷布置<br />学情看板 · AI 诊断报告</p>
+              <span class="side-go">进入管理 <AppIcon name="arrow_right" :size="13" /></span>
+            </button>
+          </aside>
+        </div>
       </div>
 
       <!-- ======== 教师端（独立组件） ======== -->
@@ -703,15 +741,23 @@ onMounted(async () => {
         <div class="page-head">
           <n-button quaternary class="back-btn" @click="goHome"><AppIcon name="back" :size="16" /> 返回</n-button>
           <h2 class="page-title">我的错题本</h2>
-          <div v-if="wrongBook.length" class="review-bar">
-            <n-button type="primary" :loading="reviewLoading" @click="startReview">
-              <span style="display:inline-flex;align-items:center;gap:6px"><AppIcon name="book_marked" :size="15" /> 错题重练（{{ wrongBook.filter(w => !w.mastered).length }} 待巩固）</span>
+          <div class="wrong-filter">
+            <button :class="{ active: wrongFilter === 'all' }" @click="wrongFilter = 'all'">全部 {{ wrongBook.length }}</button>
+            <button v-for="s in subjects" :key="s.id" :class="{ active: wrongFilter === s.id }" @click="wrongFilter = s.id">
+              {{ s.name }} {{ wrongBook.filter(w => w.subject === s.id).length }}
+            </button>
+          </div>
+          <div v-if="Object.keys(unmasteredBySub).length" class="review-bar">
+            <n-button v-for="(cnt, sid) in unmasteredBySub" :key="sid" type="primary" size="small"
+              :loading="reviewLoading" @click="startReview(sid)">
+              <span style="display:inline-flex;align-items:center;gap:6px"><AppIcon name="book_marked" :size="15" />
+                {{ (subjects.find(x => x.id === sid)?.name || sid) + '重练（' + cnt + '）' }}</span>
             </n-button>
           </div>
         </div>
-        <div v-if="!wrongBook.length" class="empty-tip">暂无错题，去自测一下吧！</div>
+        <div v-if="!wrongFiltered.length" class="empty-tip">{{ wrongFilter === 'all' ? '暂无错题，去自测一下吧！' : '该科目暂无错题' }}</div>
         <div v-else class="wrong-list">
-          <div v-for="w in wrongBook" :key="w.id" class="wrong-card">
+          <div v-for="w in wrongFiltered" :key="w.id" class="wrong-card">
             <div class="wrong-head">
               <div class="wrong-tags">
                 <span class="wrong-tag">{{ w.subject === 'math' ? '高数' : '英语' }} · {{ typeLabels[w.qtype] }}</span>
@@ -728,7 +774,9 @@ onMounted(async () => {
             </div>
             <div class="wrong-stem"><MarkdownRender :content="w.stem" /></div>
             <div class="wrong-detail">
-              <div class="wrong-answer">正确答案：<span class="correct">{{ w.answer }}</span></div>
+              <div v-if="w.qtype === 'short'" class="wrong-answer answer-md">参考解答：<MarkdownRender :content="w.answer" /></div>
+              <div v-else-if="w.qtype === 'blank'" class="wrong-answer answer-md">正确答案：<MarkdownRender :content="w.answer" /></div>
+              <div v-else class="wrong-answer">正确答案：<span class="correct">{{ w.answer }}</span></div>
               <div v-if="w.analysis" class="wrong-analysis"><strong>解析：</strong><MarkdownRender :content="w.analysis" /></div>
               <div v-if="w.note && noteEditingId !== w.id" class="wrong-note"><AppIcon name="pencil" :size="12" /> 我的笔记：{{ w.note }}</div>
               <div v-if="noteEditingId === w.id" class="wrong-note-edit">
@@ -756,7 +804,16 @@ onMounted(async () => {
         </div>
 
         <!-- 检索模式 -->
-        <div v-if="kbResults.length" class="wrong-list">
+        <div v-if="kbError" class="wrong-list">
+          <n-alert type="error" :bordered="false">{{ kbError }}</n-alert>
+        </div>
+
+        <div v-else-if="kbLoading" class="kb-book" style="justify-content:center; padding:60px 0">
+          <n-spin size="large"><template #description>知识库加载中…</template></n-spin>
+        </div>
+
+        <!-- 检索模式 -->
+        <div v-else-if="kbResults.length" class="wrong-list">
           <h3 class="kb-section-title">检索结果（{{ kbResults.length }}）</h3>
           <div v-for="(r, i) in kbResults" :key="i" class="wrong-card">
             <div class="wrong-tag">相似度 {{ (r.similarity * 100).toFixed(0) }}% · {{ r.document_name }}</div>
@@ -814,7 +871,7 @@ onMounted(async () => {
             <h3 class="welcome-title">你好，我是{{ activeSubject.name }}AI助教</h3>
             <p class="welcome-desc">基于课程知识库的智能答疑助手，可以问我任何问题</p>
             <div class="quick-chips">
-              <button v-for="q in (quickQuestions[activeSubject.id] || [])" :key="q" class="chip" @click="sendQuick(q)">{{ q }}</button>
+              <button v-for="q in (activeSubject.chatQuickQuestions || [])" :key="q" class="chip" @click="sendQuick(q)">{{ q }}</button>
             </div>
           </div>
 
@@ -920,6 +977,10 @@ onMounted(async () => {
         </template>
 
         <template v-if="quizMode === 'doing'">
+          <div v-if="quizGradeMode" class="grade-banner">
+            <AppIcon name="check" :size="15" />
+            <span>{{ quizSubject?.gradeHint || 'AI 判分体验：提交后客观题秒判，简答题由 AI 智能评分' }}</span>
+          </div>
           <div v-if="quizLoading" class="empty-tip">正在智能组卷…</div>
           <div v-else class="quiz-body">
             <div class="quiz-list">
@@ -939,7 +1000,7 @@ onMounted(async () => {
                 <div v-if="q.qtype === 'single'" class="quiz-options">
                   <label v-for="opt in (q.options || [])" :key="opt" class="opt-item" :class="{ selected: quizAnswers[q.id] === opt[0] }">
                     <input type="radio" :name="'q' + q.id" :value="opt[0]" v-model="quizAnswers[q.id]" />
-                    <span class="opt-text">{{ opt }}</span>
+                    <span class="opt-text"><MarkdownRender :content="opt" /></span>
                   </label>
                 </div>
 
@@ -947,7 +1008,7 @@ onMounted(async () => {
                   <label v-for="opt in (q.options || [])" :key="opt" class="opt-item" :class="{ selected: quizAnswers[multiKey(q.id)] && quizAnswers[multiKey(q.id)].includes(opt[0]) }">
                     <input type="checkbox" :value="opt[0]" :checked="quizAnswers[multiKey(q.id)] && quizAnswers[multiKey(q.id)].includes(opt[0])"
                       @change="updateMulti(q.id, $event.target.checked, opt)" />
-                    <span class="opt-text">{{ opt }}</span>
+                    <span class="opt-text"><MarkdownRender :content="opt" /></span>
                   </label>
                 </div>
 
@@ -998,14 +1059,17 @@ onMounted(async () => {
                   <span class="quiz-num">{{ qi + 1 }}</span>
                   <span class="quiz-type">{{ typeLabels[q.qtype] }}</span>
                   <span class="quiz-mark" :class="quizResult.results[q.id]?.correct ? 'mark-right' : 'mark-wrong'">
-                    {{ quizResult.results[q.id]?.correct ? '<AppIcon name="check" :size="14" /> 正确' : '<AppIcon name="x" :size="14" /> 错误' }}
+                    <AppIcon :name="quizResult.results[q.id]?.correct ? 'check' : 'x'" :size="14" />
+                    {{ quizResult.results[q.id]?.correct ? '正确' : '错误' }}
                   </span>
                 </div>
                 <div class="quiz-stem"><MarkdownRender :content="q.stem" /></div>
                 <div class="result-detail">
                   <div class="result-line">你的答案：{{ quizResult.results[q.id]?.student_answer || '（未作答）' }}</div>
-                  <div v-if="quizResult.results[q.id]?.needs_review" class="result-line needs-review-line"><AppIcon name="alert" :size="13" /> AI 判分失败，请老师复核，请老师复核</div>
-                  <div v-if="!quizResult.results[q.id]?.correct" class="result-line">正确答案：<span class="correct">{{ quizResult.results[q.id]?.std_answer }}</span></div>
+                  <div v-if="quizResult.results[q.id]?.needs_review" class="result-line needs-review-line"><AppIcon name="alert" :size="13" /> AI 判分失败，请老师复核</div>
+                  <div v-if="!quizResult.results[q.id]?.correct && q.qtype === 'short'" class="result-line answer-md">参考解答：<MarkdownRender :content="quizResult.results[q.id]?.std_answer || ''" /></div>
+                  <div v-else-if="!quizResult.results[q.id]?.correct && q.qtype === 'blank'" class="result-line answer-md">正确答案：<MarkdownRender :content="quizResult.results[q.id]?.std_answer || ''" /></div>
+                  <div v-else-if="!quizResult.results[q.id]?.correct" class="result-line">正确答案：<span class="correct">{{ quizResult.results[q.id]?.std_answer }}</span></div>
                   <div v-if="quizResult.results[q.id]?.analysis" class="result-line">
                     <strong>解析：</strong><MarkdownRender :content="quizResult.results[q.id]?.analysis" />
                   </div>
@@ -1025,6 +1089,23 @@ onMounted(async () => {
 
     <footer class="footer">AI 教辅智学平台 · 智能教辅双端平台</footer>
   </div>
+
+  <!-- ======== 特性入口 · 选科目弹窗 ======== -->
+  <n-modal :show="!!featurePicker" preset="card" style="width: 520px" :bordered="false"
+    :title="'🚀 ' + (featureMeta[featurePicker]?.title || '') + ' · 选择科目'"
+    @close="featurePicker = null" :mask-closable="true">
+    <p class="picker-desc">{{ featureMeta[featurePicker]?.desc }}</p>
+    <div class="picker-grid">
+      <div v-for="s in subjects" :key="s.id" class="subject-card picker-card" :style="{ '--accent': s.color }" @click="pickFeatureSubject(s)">
+        <div class="subject-icon">{{ s.icon }}</div>
+        <div class="subject-titles">
+          <div class="subject-name">{{ s.name }}</div>
+          <div class="subject-en">{{ s.enName }} · {{ bankStats[s.id] || 0 }} 题</div>
+        </div>
+        <AppIcon name="arrow_right" class="feature-go" :size="18" />
+      </div>
+    </div>
+  </n-modal>
   <Mascot />
   </n-config-provider>
 </template>

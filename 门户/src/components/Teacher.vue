@@ -1,17 +1,22 @@
 <script setup>
 import { ref, onMounted, onBeforeUnmount, nextTick, watch, h } from 'vue'
-import * as echarts from 'echarts'
 import MarkdownRender from './MarkdownRender.vue'
 import AppIcon from './AppIcon.vue'
 import { message, dialog } from '../naive'
 import { loadStudentOverrides, saveStudentOverrides } from '../storage'
+import { SUBJECTS } from '../subjects'
+
+// echarts 懒加载：全量包 ~1MB，教师端打开看板才加载（动态 import 拆成独立 chunk）
+let echarts = null
+let _echartsPromise = null
+function loadEcharts() {
+  if (!_echartsPromise) _echartsPromise = import('echarts').then(m => (echarts = m))
+  return _echartsPromise
+}
 
 const emit = defineEmits(['back'])
 
-const SUBJECTS = [
-  { id: 'math', name: '高等数学', enName: 'Calculus', color: '#4f46e5', icon: '∫' },
-  { id: 'english', name: '大学英语', enName: 'College English', color: '#0d9488', icon: 'A' },
-]
+// 科目注册表来自 subjects.js（单一事实源，加科目自动进教师端）
 const typeLabels = { single: '单选题', multiple: '多选题', judge: '判断题', blank: '填空题', short: '简答题' }
 const QTYPE_KEYS = ['single', 'multiple', 'judge', 'blank', 'short']
 // n-select 选项：题型（全部 + 各类）与难度
@@ -54,22 +59,22 @@ function refreshAll() {
 // ============ 看板 ============
 const tOverview = ref(null)
 const tKnowledge = ref([])
-const tTrends = ref([])
+const tScoreDist = ref([])
 const tWrong = ref([])
 
 async function loadAnalytics() {
   loading.value = true
   try {
     const s = subject.value, base = '/api/analytics'
-    const [ov, kn, tr, wr] = await Promise.all([
+    const [ov, kn, sd, wr] = await Promise.all([
       fetch(`${base}/overview?subject=${s}`).then(r => r.json()),
       fetch(`${base}/knowledge?subject=${s}`).then(r => r.json()),
-      fetch(`${base}/trends?subject=${s}`).then(r => r.json()),
+      fetch(`${base}/score_dist?subject=${s}`).then(r => r.json()),
       fetch(`${base}/wrong?subject=${s}`).then(r => r.json()),
     ])
     tOverview.value = ov
     tKnowledge.value = kn.items || []
-    tTrends.value = tr.items || []
+    tScoreDist.value = sd.items || []
     tWrong.value = wr.items || []
     nextTick(renderDashCharts)
   } catch (e) { tOverview.value = null }
@@ -77,6 +82,7 @@ async function loadAnalytics() {
 }
 function kpColor(acc) { return acc >= 80 ? '#10b981' : acc >= 60 ? '#f59e0b' : '#ef4444' }
 function maxWrong() { return Math.max(1, ...tWrong.value.map(w => w.count)) }
+const DIST_COLORS = ['#ef4444', '#f59e0b', '#eab308', '#84cc16', '#10b981']
 
 // ============ ECharts 图表 ============
 const dashKpEl = ref(null)
@@ -119,9 +125,12 @@ function makeChart(el, option) {
 const axisLineStyle = { lineStyle: { color: 'rgba(255,255,255,0.2)' } }
 const splitLineStyle = { splitLine: { lineStyle: { color: 'rgba(255,255,255,0.08)' } } }
 
-function renderDashCharts() {
+let _dashSeq = 0
+async function renderDashCharts() {
+  const seq = ++_dashSeq
+  await loadEcharts()
+  if (seq !== _dashSeq) return  // 已有更新的渲染排队，放弃本次，防交错
   disposeCharts()
-  console.log('[chart] renderDashCharts 调用, kp=', tKnowledge.value.length, 'ref=', !!dashKpEl.value, 'wrongRef=', !!dashWrongEl.value, 'trendRef=', !!dashTrendEl.value)
   // 知识点掌握度 → 横向条形
   if (tKnowledge.value.length && dashKpEl.value) {
     const kps = tKnowledge.value.slice(0, 12)
@@ -150,23 +159,30 @@ function renderDashCharts() {
       }],
     })
   }
-  // 平均分趋势 → 折线
-  if (tTrends.value.length && dashTrendEl.value) {
+  // 成绩分布 → 柱状直方图（按分数段）
+  if (tScoreDist.value.length && dashTrendEl.value) {
     makeChart(dashTrendEl.value, {
-      tooltip: { trigger: 'axis' },
-      grid: { left: 40, right: 16, top: 22, bottom: 24 },
-      xAxis: { type: 'category', data: tTrends.value.map(t => t.date.slice(5)), ...axisLineStyle, axisLabel: { color: '#94a3b8' } },
-      yAxis: { type: 'value', ...splitLineStyle, axisLabel: { color: '#94a3b8' } },
+      tooltip: { trigger: 'axis', formatter: '{b}：{c} 人次' },
+      grid: { left: 36, right: 16, top: 26, bottom: 24 },
+      xAxis: { type: 'category', data: tScoreDist.value.map(d => d.range), ...axisLineStyle, axisLabel: { color: '#94a3b8' } },
+      yAxis: { type: 'value', minInterval: 1, ...splitLineStyle, axisLabel: { color: '#94a3b8' } },
       series: [{
-        type: 'line', data: tTrends.value.map(t => t.avg_score), smooth: true, symbolSize: 7,
-        lineStyle: { width: 3, color: '#818cf8' }, itemStyle: { color: '#a5b4fc' },
-        areaStyle: { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: 'rgba(99,102,241,0.35)' }, { offset: 1, color: 'rgba(99,102,241,0)' }] } },
+        type: 'bar', barWidth: 30,
+        data: tScoreDist.value.map((d, i) => ({
+          value: d.count,
+          itemStyle: { color: DIST_COLORS[i % DIST_COLORS.length], borderRadius: [6, 6, 0, 0] },
+        })),
+        label: { show: true, position: 'top', color: '#94a3b8' },
       }],
     })
   }
 }
 
-function renderStuCharts() {
+let _stuSeq = 0
+async function renderStuCharts() {
+  const seq = ++_stuSeq
+  await loadEcharts()
+  if (seq !== _stuSeq) return
   disposeCharts()
   const d = detail.value
   if (!d) return
@@ -517,7 +533,7 @@ async function kbSearch() {
 }
 
 // 数据到位后驱动图表渲染（放在所有声明之后，避免 TDZ）
-watch([tKnowledge, tWrong, tTrends], () => { nextTick(renderDashCharts) })
+watch([tKnowledge, tWrong, tScoreDist], () => { nextTick(renderDashCharts) })
 watch(detail, () => { nextTick(renderStuCharts) }, { deep: true })
 
 onMounted(() => { loadStuOverrides(); loadAnalytics() })
@@ -567,8 +583,8 @@ onMounted(() => { loadStuOverrides(); loadAnalytics() })
           </div>
 
           <div class="dash-card trend-card">
-            <h3 class="dash-title">班级平均分趋势</h3>
-            <div v-if="!tTrends.length" class="empty-tip">暂无趋势数据</div>
+            <h3 class="dash-title">成绩分布</h3>
+            <div v-if="!tScoreDist.length" class="empty-tip">暂无测试数据</div>
             <div v-else ref="dashTrendEl" class="t-chart"></div>
           </div>
         </div>
@@ -623,7 +639,9 @@ onMounted(() => { loadStuOverrides(); loadAnalytics() })
               <div class="wrong-tag">{{ typeLabels[w.qtype] }} · {{ w.knowledge_point }}</div>
               <div class="wrong-stem"><MarkdownRender :content="w.stem" /></div>
               <div class="wrong-detail">
-                <div class="wrong-answer">正确答案：<span class="correct">{{ w.answer }}</span></div>
+                <div v-if="w.qtype === 'short'" class="wrong-answer answer-md">参考解答：<MarkdownRender :content="w.answer" /></div>
+                <div v-else-if="w.qtype === 'blank'" class="wrong-answer answer-md">正确答案：<MarkdownRender :content="w.answer" /></div>
+                <div v-else class="wrong-answer">正确答案：<span class="correct">{{ w.answer }}</span></div>
                 <div v-if="w.analysis" class="wrong-analysis"><strong>解析：</strong><MarkdownRender :content="w.analysis" /></div>
               </div>
             </div>
@@ -693,10 +711,12 @@ onMounted(() => { loadStuOverrides(); loadAnalytics() })
           </div>
           <div class="wrong-stem"><MarkdownRender :content="q.stem" /></div>
           <div v-if="(q.options || []).length" class="bank-options">
-            <span v-for="o in q.options" :key="o" class="bank-opt" :class="{ 'bank-opt-correct': o.startsWith(q.answer) }">{{ o }}</span>
+            <span v-for="o in q.options" :key="o" class="bank-opt" :class="{ 'bank-opt-correct': o.startsWith(q.answer) }"><MarkdownRender :content="o" /></span>
           </div>
           <div class="wrong-detail">
-            <div class="wrong-answer">答案：<span class="correct">{{ q.answer }}</span></div>
+            <div v-if="q.qtype === 'short'" class="wrong-answer answer-md">参考解答：<MarkdownRender :content="q.answer" /></div>
+            <div v-else-if="q.qtype === 'blank'" class="wrong-answer answer-md">正确答案：<MarkdownRender :content="q.answer" /></div>
+            <div v-else class="wrong-answer">答案：<span class="correct">{{ q.answer }}</span></div>
             <div v-if="q.analysis" class="wrong-analysis"><strong>解析：</strong><MarkdownRender :content="q.analysis" /></div>
           </div>
           <div class="bank-ops">
@@ -757,10 +777,12 @@ onMounted(() => { loadStuOverrides(); loadAnalytics() })
           </div>
           <div class="wrong-stem"><MarkdownRender :content="q.stem" /></div>
           <div v-if="(q.options || []).length" class="bank-options">
-            <span v-for="o in q.options" :key="o" class="bank-opt" :class="{ 'bank-opt-correct': o.startsWith(q.answer) }">{{ o }}</span>
+            <span v-for="o in q.options" :key="o" class="bank-opt" :class="{ 'bank-opt-correct': o.startsWith(q.answer) }"><MarkdownRender :content="o" /></span>
           </div>
           <div class="wrong-detail">
-            <div class="wrong-answer">标准答案：<span class="correct">{{ q.answer }}</span></div>
+            <div v-if="q.qtype === 'short'" class="wrong-answer answer-md">参考解答：<MarkdownRender :content="q.answer" /></div>
+            <div v-else-if="q.qtype === 'blank'" class="wrong-answer answer-md">正确答案：<MarkdownRender :content="q.answer" /></div>
+            <div v-else class="wrong-answer">标准答案：<span class="correct">{{ q.answer }}</span></div>
             <div v-if="q.analysis" class="wrong-analysis"><strong>解析：</strong><MarkdownRender :content="q.analysis" /></div>
           </div>
         </div>

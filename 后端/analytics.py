@@ -145,6 +145,21 @@ def trends(subject: str = "", student_name: str = ""):
     return {"code": 200, "items": items}
 
 
+@router.get("/score_dist")
+def score_dist(subject: str = ""):
+    """成绩分布：按分数段统计人次（0-59 / 60-69 / 70-79 / 80-89 / 90-100）"""
+    attempts = _all_attempts(subject)
+    buckets = [("0-59", 0, 59), ("60-69", 60, 69), ("70-79", 70, 79), ("80-89", 80, 89), ("90-100", 90, 100)]
+    counts = {name: 0 for name, _, _ in buckets}
+    for a in attempts:
+        sc = a["score"] or 0
+        for name, lo, hi in buckets:
+            if lo <= sc <= hi:
+                counts[name] += 1
+                break
+    return {"code": 200, "items": [{"range": k, "count": v} for k, v in counts.items()]}
+
+
 @router.get("/wrong")
 def wrong(subject: str = ""):
     """错题分布：按知识点统计错题数（含题型细分）"""

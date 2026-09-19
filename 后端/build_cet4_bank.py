@@ -21,7 +21,7 @@ import fitz
 sys.stdout.reconfigure(encoding="utf-8")
 
 BASE = os.path.dirname(os.path.abspath(__file__))
-PDF_DIR = "C:/Users/requter/Desktop/新建文件夹 (11)/英语四级"
+PDF_DIR = "E:/AI教辅智学平台/英语四级"
 DEEPSEEK_KEY = os.environ.get("DEEPSEEK_KEY", "")  # 从 .env 读取
 API = "https://api.deepseek.com/chat/completions"
 

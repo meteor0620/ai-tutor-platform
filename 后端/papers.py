@@ -35,7 +35,7 @@ class SubmitIn(BaseModel):
 
 class ReviewIn(BaseModel):
     """错题重练：基于未掌握错题的知识点重新组卷"""
-    student_name: str
+    student_name: str = "学生"
     subject: str = ""
 
 
@@ -211,10 +211,15 @@ def create_review_paper(rv: ReviewIn):
     picked = []
     for kp, cnt in kps:
         n = min(cnt, 3)  # 每知识点最多 3 道
-        # 优先该知识点下没做错过的题
-        rows = conn.execute(
-            "SELECT * FROM questions WHERE knowledge_point=? ORDER BY RANDOM() LIMIT 200",
-            (kp,)).fetchall()
+        # 优先该科目、该知识点下没做错过的题（科目过滤防止跨科目混卷）
+        if rv.subject:
+            rows = conn.execute(
+                "SELECT * FROM questions WHERE knowledge_point=? AND subject=? ORDER BY RANDOM() LIMIT 200",
+                (kp, rv.subject)).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM questions WHERE knowledge_point=? ORDER BY RANDOM() LIMIT 200",
+                (kp,)).fetchall()
         fresh = [row_to_dict(r) for r in rows if r["id"] not in done_ids]
         rest = [row_to_dict(r) for r in rows if r["id"] in done_ids]
         random.shuffle(fresh)

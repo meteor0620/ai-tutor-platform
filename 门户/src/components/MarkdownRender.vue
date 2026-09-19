@@ -5,13 +5,8 @@ import texmath from 'markdown-it-texmath'
 import katex from 'katex'
 import 'katex/dist/katex.min.css'
 
-const props = defineProps({
-  content: {
-    type: String,
-    default: '',
-  },
-})
-
+// 模块级单例：markdown-it + katex 初始化开销不小，题库/知识库一页几十个组件
+// 若放组件 setup 里会重复创建几十份实例；提到模块层全站共用一份
 const md = new MarkdownIt({
   html: false,
   linkify: true,
@@ -19,6 +14,13 @@ const md = new MarkdownIt({
 })
 
 md.use(texmath, { engine: katex, delimiters: 'dollars', katexOptions: { throwOnError: false } })
+
+const props = defineProps({
+  content: {
+    type: String,
+    default: '',
+  },
+})
 
 // ===== 裸文本数学包裹器 =====
 // 把 AI 回复里"没被 $ 包裹"的数学记号自动包成 $...$ 交给 KaTeX 渲染，

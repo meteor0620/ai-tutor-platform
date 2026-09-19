@@ -13,14 +13,14 @@ import sys
 import requests
 
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
-sys.path.insert(0, r"E:\新建文件夹 (11)\meteor-master\meteor-master\后端")
+sys.path.insert(0, r"E:\AI教辅智学平台\meteor-master\meteor-master\后端")
 from config import get
 
-OUT = r"E:\新建文件夹 (11)\meteor-master\meteor-master\门户\public\demo"
-ids = json.load(open(r"E:\新建文件夹 (11)\meteor-master\meteor-master\后端\rebuild_ids.json", encoding="utf-8"))
+OUT = r"E:\AI教辅智学平台\meteor-master\meteor-master\门户\public\demo"
+ids = json.load(open(r"E:\AI教辅智学平台\meteor-master\meteor-master\后端\rebuild_ids.json", encoding="utf-8"))
 
 # ---------- 1. 题库 ----------
-con = sqlite3.connect(r"E:\新建文件夹 (11)\meteor-master\meteor-master\后端\aiplatform.db")
+con = sqlite3.connect(r"E:\AI教辅智学平台\meteor-master\meteor-master\后端\aiplatform.db")
 con.row_factory = sqlite3.Row
 cols = [r[1] for r in con.execute("PRAGMA table_info(questions)")]
 print("questions 列:", cols)

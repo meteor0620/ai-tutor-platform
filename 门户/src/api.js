@@ -1,3 +1,5 @@
+import { SUBJECTS, getSubject } from './subjects'
+
 // ============ 统一 API 层 ============
 // full  模式：本机 FastAPI 后端 + MaxKB（开发/演示完整版）
 // demo  模式：纯静态 JSON + 前端判卷 + Worker 代理 LLM（GitHub Pages 公网版）
@@ -79,16 +81,7 @@ async function llmChat(messages, temperature = 0.4) {
   return d.content || ''
 }
 
-const CHAT_PROMPTS = {
-  math: {
-    system: '你是高校课程AI助教，回答要精炼、结构化、准确。',
-    prefix: '请回答用户的问题：{question}\n请根据下面的知识库内容回答问题，只使用与问题最匹配的<data>段落，忽略无关段落。\n回答结构：① 核心思想 ② 公式 ③ 必考点 ④ 易错点 ⑤ 几何直观（如适用）。\n如果知识库没有相关内容，直接说明。\n<data>\n{data}\n</data>',
-  },
-  english: {
-    system: '你是高校课程AI助教，回答要精炼、结构化、准确。',
-    prefix: '请回答用户的问题：{question}\n请根据下面的知识库内容回答问题，只使用与问题最匹配的<data>段落，忽略无关段落。\n回答结构：① 核心要点 ② 词汇/语法/用法 ③ 常见错误 ④ 例句。\n如果知识库没有相关内容，直接说明。\n<data>\n{data}\n</data>',
-  },
-}
+// demo 模式各科目 LLM 提示词见 subjects.js 的 chatPrompt（单一事实源）
 
 // ============ demo 数据加载 ============
 async function demoQuestions(sub) { return loadJson('questions_' + sub) }
@@ -135,9 +128,9 @@ export const api = {
   async stats() {
     if (!isDemo) return j('/api/questions/stats')
     const items = {}
-    for (const sub of ['math', 'english']) {
-      const qs = await demoQuestions(sub)
-      items[sub] = { total: qs.length }
+    for (const s of SUBJECTS) {
+      const qs = await demoQuestions(s.id)
+      items[s.id] = { total: qs.length }
     }
     return { code: 200, items }
   },
@@ -280,11 +273,22 @@ export const api = {
     return { score, total: 100, results }
   },
 
-  async reviewPaper({ subject }) {
-    if (!isDemo) return j('/api/papers/review', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ subject }),
-    })
+  async reviewPaper({ student_name, subject }) {
+    if (!isDemo) {
+      const res = await fetch('/api/papers/review', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ student_name: student_name || '学生', subject }),
+      })
+      const data = await res.json()
+      if (!res.ok || (data.code && data.code !== 200)) {
+        const d = data.detail
+        const msg = typeof d === 'string' ? d
+          : Array.isArray(d) ? d.map(x => x.msg || x.message).join('；')
+          : (d ? JSON.stringify(d) : '重练组卷失败')
+        throw new Error(msg)
+      }
+      return data
+    }
     // demo：从本地错题的知识点出发组一份巩固卷
     const { loadWrongData } = await import('./storage')
     const local = await loadWrongData()
@@ -325,7 +329,7 @@ export const api = {
     const kb = await demoKb(subjectId)
     const hits = retrieve(kb, question, 6)
     const data = hits.map(h => `【${h.title || h.document_name}】\n${h.content}`).join('\n\n')
-    const p = CHAT_PROMPTS[subjectId] || CHAT_PROMPTS.math
+    const p = getSubject(subjectId).chatPrompt
     const messages = [
       { role: 'system', content: p.system },
       ...history.slice(-6).map(m => ({ role: m.role === 'ai' ? 'assistant' : 'user', content: m.content })),

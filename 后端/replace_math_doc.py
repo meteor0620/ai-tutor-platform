@@ -31,12 +31,13 @@ GREEK = {
 }
 SYMBOLS = [
     ("\\infty", "∞"), ("\\cdot", "·"), ("\\cdots", "…"), ("\\ldots", "…"), ("\\vdots", "⋮"),
-    ("\\times", "×"), ("\\div", "÷"), ("\\pm", "±"), ("\\mp", "∓"),
+    ("\\dots", "…"), ("\\times", "×"), ("\\div", "÷"), ("\\pm", "±"), ("\\mp", "∓"),
+    ("\\leqslant", "≤"), ("\\geqslant", "≥"),
     ("\\leq", "≤"), ("\\le", "≤"), ("\\geq", "≥"), ("\\ge", "≥"), ("\\neq", "≠"), ("\\ne", "≠"),
     ("\\approx", "≈"), ("\\equiv", "≡"), ("\\sim", "~"), ("\\propto", "∝"),
     ("\\rightarrow", "→"), ("\\to", "→"), ("\\leftarrow", "←"), ("\\Rightarrow", "⇒"),
     ("\\longrightarrow", "⟶"), ("\\Longrightarrow", "⟹"), ("\\Leftrightarrow", "⇔"),
-    ("\\leftrightarrow", "↔"), ("\\mapsto", "↦"),
+    ("\\leftrightarrow", "↔"), ("\\mapsto", "↦"), ("\\nRightarrow", "⇏"),
     ("\\subseteq", "⊆"), ("\\subset", "⊂"), ("\\supseteq", "⊇"), ("\\supset", "⊃"),
     ("\\cup", "∪"), ("\\cap", "∩"), ("\\emptyset", "∅"), ("\\varnothing", "∅"),
     ("\\in", "∈"), ("\\notin", "∉"), ("\\ni", "∋"), ("\\forall", "∀"), ("\\exists", "∃"),
@@ -50,13 +51,25 @@ SYMBOLS = [
     ("\\det", "det"), ("\\dim", "dim"), ("\\arg", "arg"), ("\\gcd", "gcd"),
     ("\\deg", "deg"), ("\\sup", "sup"), ("\\inf", "inf"), ("\\lim", "lim"),
     ("\\prime", "′"), ("\\circ", "°"), ("\\bullet", "·"), ("\\star", "*"),
-    ("\\langle", "⟨"), ("\\rangle", "⟩"), ("\\|", "‖"), ("\\{", "{"), ("\\}", "}"),
-    ("\\quad", "  "), ("\\qquad", "  "),
+    ("\\langle", "⟨"), ("\\rangle", "⟩"), ("\\|", "‖"), ("\\mid", "|"),
+    ("\\{", "{"), ("\\}", "}"), ("\\quad", "  "), ("\\qquad", "  "),
 ]
+
+# 替换前先按命令长度降序排列：保证 \int 先于 \in、\left 先于 \le、
+# \cdots 先于 \cdot、\leqslant 先于 \leq（否则短命令先替换会吃掉长命令的前缀）
+SYMBOLS.sort(key=lambda kv: -len(kv[0]))
+
+
+def _strip_size_cmds(s: str) -> str:
+    r"""去掉 \big \Big \bigg \Bigg \left \right \limits \displaystyle 等排版修饰符（必须在符号替换前）"""
+    s = re.sub(r"\\[Bb]igg?[Gg]?", "", s)
+    s = s.replace("\\left", "").replace("\\right", "")
+    s = s.replace("\\limits", "").replace("\\displaystyle", "")
+    return s
 
 
 def read_arg(s, i):
-    """读第 i 个参数 \cmd{arg}，返回 (arg内容, 结束索引)；无花括号则取单字符"""
+    r"""读第 i 个参数 \cmd{arg}，返回 (arg内容, 结束索引)；无花括号则取单字符"""
     while i < len(s) and s[i] in " \t\n":
         i += 1
     if i >= len(s):
@@ -74,7 +87,9 @@ def read_arg(s, i):
 
 
 def latex_to_text(s):
-    """\frac{a}{b} -> (a/b)；\sqrt{x} -> √(x)；递归处理嵌套"""
+    r"""\frac{a}{b} -> (a/b)；\sqrt{x} -> √(x)；递归处理嵌套"""
+    # 排版修饰符最先剥离，避免 \left/\Big 的残体混进后续替换
+    s = _strip_size_cmds(s)
     # \frac / \dfrac / \tfrac {a}{b}
     pat = re.compile(r"\\[dt]?frac")
     while True:
@@ -84,6 +99,15 @@ def latex_to_text(s):
         a, j = read_arg(s, m.end())
         b, k = read_arg(s, j)
         s = s[:m.start()] + f"({a})/({b})" + s[k:]
+    # \binom{n}{k} -> C(n, k)
+    pat = re.compile(r"\\binom")
+    while True:
+        m = pat.search(s)
+        if not m:
+            break
+        a, j = read_arg(s, m.end())
+        b, k = read_arg(s, j)
+        s = s[:m.start()] + f"C({a}, {b})" + s[k:]
     # \sqrt[n]{x} / \sqrt{x}
     pat = re.compile(r"\\sqrt")
     while True:
@@ -119,10 +143,10 @@ def latex_to_text(s):
             s = s[:m.start()] + a + s[k:]
     # \begin{xxx} \end{xxx}
     s = re.sub(r"\\(?:begin|end)\{[a-zA-Z*]+\}", "\n", s)
-    # 希腊字母
-    for k, v in GREEK.items():
-        s = s.replace("\\" + k, v)
-    # 符号与函数（长名优先，GREEK 已替换，这里按 SYMBOLS 顺序）
+    # 希腊字母（长名优先，防止 \varepsilon 被 \epsilon 撞掉）
+    for k in sorted(GREEK, key=len, reverse=True):
+        s = s.replace("\\" + k, GREEK[k])
+    # 符号与函数（已按长度降序，长命令先替换）
     for k, v in SYMBOLS:
         s = s.replace(k, v)
     # 上下标
@@ -141,9 +165,11 @@ def latex_to_text(s):
     # 残余控制符
     s = re.sub(r"\\[a-zA-Z]+", "", s)
     s = s.replace("\\!", "").replace("\\,", " ").replace("\\;", " ").replace("\\:", " ")
-    s = s.replace("\\left", "").replace("\\right", "").replace("\\limits", "")
-    s = s.replace("\\displaystyle", "").replace("\\\\", "\n")
+    s = s.replace("\\ ", " ").replace("~", " ")
+    s = s.replace("\\\\", "\n")
     s = s.replace("$", " ").replace(" & ", " ").replace("&", " ")
+    # 残余花括号是 LaTeX 分组残留，转成圆括号（sin{x} -> sin(x)）
+    s = s.replace("{", "(").replace("}", ")")
     return s
 
 

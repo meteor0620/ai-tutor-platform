@@ -28,7 +28,7 @@ Write-Host "[2/4] MaxKB 运行中 (http://localhost:8080)" -ForegroundColor Gree
 
 # 3. 启动后端（FastAPI，8001）
 Write-Host "[3/4] 启动后端服务..." -ForegroundColor Yellow
-$backendDir = "C:\Users\meteo\Desktop\AI教辅智学平台\后端"
+$backendDir = "E:\AI教辅智学平台\meteor-master\meteor-master\后端"
 $beAlive = $false
 try {
     $check = Invoke-RestMethod -Uri "http://localhost:8001/" -TimeoutSec 5
@@ -42,13 +42,13 @@ Write-Host "[3/4] 后端运行中 (http://localhost:8001)" -ForegroundColor Gree
 
 # 4. 启动门户（Vue3）
 Write-Host "[4/4] 启动门户开发服务器..." -ForegroundColor Yellow
-$portDir = "C:\Users\meteo\Desktop\AI教辅智学平台\门户"
+$portDir = "E:\AI教辅智学平台\meteor-master\meteor-master\门户"
 Start-Process -FilePath "cmd.exe" -ArgumentList "/c npm run dev > vite-dev.log 2>&1" -WorkingDirectory $portDir -WindowStyle Hidden
 Start-Sleep -Seconds 10
 
 Write-Host "" -ForegroundColor Green
 Write-Host "=== 启动完成 ===" -ForegroundColor Cyan
-Write-Host "MaxKB 管理后台: http://localhost:8081  (账号/密码见后端/.env)"
+Write-Host "MaxKB 管理后台: http://localhost:8080  (账号/密码见后端/.env)"
 Write-Host "后端 API:        http://localhost:8001"
 Write-Host "学生门户界面:    http://localhost:5173"
 Write-Host "浏览器打开上述地址即可使用" -ForegroundColor Green

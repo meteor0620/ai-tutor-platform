@@ -22,5 +22,10 @@ Thumbs.db
 .idea/
 .vscode/
 
-# ===== ?????????????????? =====
-SESSION??*.md
+# ===== 本地数据库/日志/备份/交接文档（不上传） =====
+后端/*.db
+后端/*.log
+后端/*.err.log
+后端/bank_backup_*.json
+_backup_*/
+SESSION*.md
